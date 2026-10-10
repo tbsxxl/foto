@@ -2,9 +2,9 @@
 import { $, clamp, clone, de, esc, state, ui, sources, cache, ids, newId, dims, selLayer, toast, defParams, upgradeParams,
   FORMATS, HSL_BANDS, LOOKS, LOOK_CATS, FONTS, TEXT_COLORS, BG_COLORS, FRAME_COLORS, RATIOS, ID_CURVE, BLENDS, STAMP_COLORS } from './core.js';
 import { mk, makeAux, processImage, prepare, curveFn, pickHealSource, wbFromPoint, LEAKS } from './process.js';
-import { flags, loadScaled, orientCanvas, cropAspect, cropRect, boxOf, drawScene, ensureCache, releaseAux, drawSample, SHAPES, BG_PATTERNS, FRAMES } from './scene.js';
-import { newImageLayer, newTextLayer, newShapeLayer, coverSlide, coverAll } from './layers.js';
-import { TEMPLATES, miniSVG, applyTemplate } from './templates.js';
+import { flags, loadScaled, orientCanvas, cropAspect, cropRect, boxOf, drawScene, ensureCache, releaseAux, cacheKey, drawSample, SHAPES, BG_PATTERNS, FRAMES } from './scene.js';
+import { newImageLayer, newTextLayer, newShapeLayer, coverSlide, coverAll, computeBox } from './layers.js';
+import { TEMPLATES, TPL_CATS, tplSVG, tplDef, applyTemplate, layout, relink, shufflePhotos, releaseTemplate } from './templates.js';
 import * as store from './store.js';
 
 const PREVIEW_PX = 1200; // Vorschau-Auflösung (Export rechnet mit voller Auflösung)
@@ -74,7 +74,7 @@ const localOf = (G, u, v) => ({ x: (u * G.iw - G.sx) * G.k - G.bx.w / 2, y: (v *
 
 /* ---------- Werkzeuge ---------- */
 const TOOL_OF_TAB = { selektiv: 'mask', pinsel: 'brush', reparieren: 'heal', fokus: 'focus', zuschnitt: 'crop' };
-function activeTool() { const l = selLayer(); if (!l || l.type !== 'image') return null; if (ui.pick) return 'wb'; return TOOL_OF_TAB[ui.tab.image] || null; }
+function activeTool() { const l = selLayer(); if (!l || l.type !== 'image' || !l.srcId) return null; if (ui.pick) return 'wb'; return TOOL_OF_TAB[ui.tab.image] || null; }
 function drawToolOverlay(l) {
   const tool = activeTool(), G = imgGeom(l); if (!G) return; const s = view.s, p = l.params;
   ctx.save(); ctx.beginPath(); ctx.rect(-G.bx.w / 2, -G.bx.h / 2 + G.bx.iy, G.bx.w, G.bx.h); ctx.clip();
@@ -180,7 +180,8 @@ cv.addEventListener('pointermove', e => {
   else if (m === 'brush') { const ip = imgPt(gest.l, p); if (ip) { const a = gest.st.p, lu = a[a.length - 2], lv = a[a.length - 1]; ui.cursor = { u: ip.u, v: ip.v };
       if (Math.hypot(ip.u - lu, ip.v - lv) > gest.st.s * .15) a.push(+ip.u.toFixed(4), +ip.v.toFixed(4)); } }
   else if (m === 'crop') { const l = gest.l, q = toLocal(l, p), G = gest.G, dxImg = (q.x - gest.q0.x) / G.k, dyImg = (q.y - gest.q0.y) / G.k;
-    if (G.iw - G.sw > 1) l.crop.px = clamp(gest.px0 - dxImg / (G.iw - G.sw)); if (G.ih - G.sh > 1) l.crop.py = clamp(gest.py0 - dyImg / (G.ih - G.sh)); }
+    if (l.crop.box) { const b = l.crop.box; gest.b0 = gest.b0 || b.slice(); b[0] = clamp(gest.b0[0] - dxImg / G.iw, 0, 1 - b[2]); b[1] = clamp(gest.b0[1] - dyImg / G.ih, 0, 1 - b[3]); }
+    else if (G.iw - G.sw > 1) l.crop.px = clamp(gest.px0 - dxImg / (G.iw - G.sw)); if (!l.crop.box && G.ih - G.sh > 1) l.crop.py = clamp(gest.py0 - dyImg / (G.ih - G.sh)); }
   else if (ptrs.size === 2) {
     const [a, b] = [...ptrs.values()]; const dist = Math.hypot(a.sx - b.sx, a.sy - b.sy), ang = Math.atan2(b.sy - a.sy, b.sx - a.sx);
     if (m === 'pinchLayer') { setSize(gest.l, gest.size0 * dist / gest.dist); let r = gest.rot0 + (ang - gest.ang) * 180 / Math.PI; r = ((r + 540) % 360) - 180; for (const t of [-90, 0, 90]) if (Math.abs(r - t) < 3) r = t; gest.l.rot = r; }
@@ -196,6 +197,7 @@ function endPtr(e) {
   const g = gest; gest = null; ui.guides = []; flags.throttle = 0;
   if (g) {
     if (g.mode === 'pan' && !g.moved && ui.sel && !activeTool()) selectLayer(null);
+    else if (g.mode === 'move' && !g.moved && g.l && g.l.type === 'image' && !g.l.srcId) ui.tapPh = g.l.id;
     else if (g.mode === 'brush' || g.mode === 'pinDrag' || g.mode === 'crop' || g.mode === 'none' || g.mode === 'pinchPin' || g.mode === 'pinchCrop') { pushHistory(); syncPanelValues(); }
     else if (g.l && g.moved) { pushHistory(); syncPanelValues(); }
   }
@@ -203,22 +205,23 @@ function endPtr(e) {
   requestRender();
 }
 cv.addEventListener('pointerup', endPtr); cv.addEventListener('pointercancel', endPtr);
+cv.addEventListener('click', () => { if (ui.tapPh) { ui.fillSlot = ui.tapPh; ui.tapPh = null; $('#fileIn').click(); } }); // leeres Feld: Fotoauswahl öffnen
 cv.addEventListener('dblclick', e => { const p = toCanvas(e); if (!hitTest(p)) { fit(); requestRender(); } });
 cv.addEventListener('wheel', e => { e.preventDefault(); const p = toCanvas(e);
   if (e.ctrlKey) { const ns = clamp(view.s * Math.exp(-e.deltaY * .01), .03, 3); view.ox = p.sx - p.x * ns; view.oy = p.sy - p.y * ns; view.s = ns; }
   else { view.ox -= e.deltaX || e.deltaY; } clampView(); requestRender(); }, { passive: false });
 
 function selectLayer(id) {
-  if (ui.sel && ui.sel !== id) releaseAux(ui.sel);
+  if (ui.sel && ui.sel !== id) releaseAux(selLayer());
   ui.sel = id; ui.pick = false; ui.maskSel = 0; renderUI();
 }
 
 /* ---------- Verlauf & automatisches Speichern ---------- */
 let hist = [], hIdx = -1;
-const snap = () => JSON.stringify({ format: state.format, slides: state.slides, bg: state.bg, layers: state.layers });
-function pushHistory() { const s = snap(); if (hist[hIdx] === s) return; hist = hist.slice(0, hIdx + 1); hist.push(s); if (hist.length > 60) hist.shift(); hIdx = hist.length - 1; updateTop(); scheduleSave(); }
+const snap = () => JSON.stringify({ format: state.format, slides: state.slides, bg: state.bg, tpl: state.tpl || null, layers: state.layers });
+function pushHistory() { relink(ui.sel); const s = snap(); if (hist[hIdx] === s) return; hist = hist.slice(0, hIdx + 1); hist.push(s); if (hist.length > 60) hist.shift(); hIdx = hist.length - 1; updateTop(); scheduleSave(); }
 function restore(s) {
-  const o = JSON.parse(s); state.format = o.format; state.slides = o.slides; state.bg = o.bg; state.layers = o.layers;
+  const o = JSON.parse(s); state.format = o.format; state.slides = o.slides; state.bg = o.bg; state.tpl = o.tpl || null; state.layers = o.layers; relink();
   ids.n = Math.max(ids.n, ...state.layers.map(l => l.id + 1), 1);
   if (!selLayer()) ui.sel = null; fit(); renderUI(); requestRender(); scheduleSave();
 }
@@ -234,7 +237,7 @@ function saveNow() {
     const id = ui.projectId, used = new Set(state.layers.filter(l => l.type === 'image').map(l => l.srcId));
     const files = [...used].filter(s => !savedSrc.has(s) && sources.get(s)?.kind === 'file').map(s => ({ srcId: s, blob: sources.get(s).file, date: sources.get(s).date }));
     const thumb = await makeThumb();
-    await store.saveProject({ id, name: ui.projectName, updated: Date.now(), doc: { format: state.format, slides: state.slides, bg: state.bg, layers: state.layers }, thumb }, files);
+    await store.saveProject({ id, name: ui.projectName, updated: Date.now(), doc: { format: state.format, slides: state.slides, bg: state.bg, tpl: state.tpl || null, layers: state.layers }, thumb }, files);
     files.forEach(f => savedSrc.add(f.srcId));
     await store.pruneFiles(id, used); savedSrc = new Set([...savedSrc].filter(s => used.has(s)));
   }).catch(err => { console.warn(err); toast('Speichern hat nicht geklappt – ist der Speicher voll?'); });
@@ -242,14 +245,14 @@ function saveNow() {
 }
 async function makeThumb() {
   const { W, H } = dims(), T = W * state.slides, s = 240 / H, c = mk(Math.min(T * s, 1600), 240), x = c.getContext('2d');
-  x.scale(c.width / T, 240 / H); drawScene(x);
+  x.scale(c.width / T, 240 / H); drawScene(x, { clean: true });
   return new Promise(r => c.toBlob(r, 'image/jpeg', .72));
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && saveT) { clearTimeout(saveT); saveT = null; saveNow(); } });
 
 /* ---------- Oberfläche ---------- */
 const panel = $('#panel'), tabs = $('#tabs'), head = $('#panelHead');
-const mode = () => { const l = selLayer(); return l ? l.type : 'none'; };
+const mode = () => { const l = selLayer(); return l ? (l.type === 'image' && !l.srcId ? 'slot' : l.type) : 'none'; };
 function updateTop() {
   $('#undoBtn').disabled = hIdx <= 0; $('#redoBtn').disabled = hIdx >= hist.length - 1;
   $('#fmtTag').textContent = `${state.format} · ${state.slides} ${state.slides === 1 ? 'Slide' : 'Slides'}`;
@@ -259,6 +262,7 @@ function updateTop() {
     : tool === 'heal' ? 'Tippe auf Flecken, Fussel oder störende Punkte'
     : tool === 'focus' ? 'Ziehen verschiebt den Schärfebereich' : tool === 'crop' ? 'Im Foto ziehen verschiebt den Ausschnitt · zwei Finger zoomen'
     : tool === 'wb' ? 'Tippe auf etwas, das weiß oder grau sein sollte'
+    : l && l.type === 'image' && !l.srcId ? 'Tippe auf das „+“, um ein Foto einzusetzen'
     : state.layers.length ? (l ? (l.locked ? 'Ebene ist gesperrt – entsperren unter „Ebenen“' : 'Ziehen verschiebt · Eck-Griff skaliert und dreht · zwei Finger: Zoom') : 'Antippen zum Bearbeiten · leere Fläche ziehen zum Scrollen') : 'Füge Fotos hinzu – sie dürfen über die Slide-Grenzen ragen.';
 }
 function renderUI() { renderTabs(); renderHead(); renderPanel(); updateTop(); requestRender(); }
@@ -267,7 +271,8 @@ const TABSETS = {
   image: [['looks', 'Looks'], ['anpassen', 'Anpassen'], ['licht', 'Licht'], ['farbe', 'Farbe'], ['grading', 'Color Grading'], ['kurve', 'Kurve'], ['details', 'Details'], ['effekte', 'Effekte'], ['stempel', 'Stempel'],
     ['selektiv', 'Selektiv'], ['pinsel', 'Pinsel'], ['reparieren', 'Reparieren'], ['fokus', 'Fokus'], ['zuschnitt', 'Zuschnitt'], ['ebene', 'Ebene']],
   text: [['text', 'Text'], ['stil', 'Stil'], ['ebene', 'Ebene']],
-  shape: [['form', 'Form'], ['ebene', 'Ebene']]
+  shape: [['form', 'Form'], ['ebene', 'Ebene']],
+  slot: [['slot', 'Leeres Feld']]
 };
 function renderTabs() {
   const m = mode();
@@ -288,7 +293,7 @@ $('#camIn').addEventListener('change', e => { const f = [...e.target.files]; e.t
 function renderHead() {
   const m = mode(), l = selLayer();
   if (m === 'none') { head.innerHTML = `<span class="hint">${state.layers.length ? 'Tippe ein Foto, einen Text oder ein Element an.' : 'Noch leer. Starte mit „+ Foto“ oder einer Vorlage.'}</span>`; return; }
-  if (m === 'text' || m === 'shape') { head.innerHTML = `<span class="title">${m === 'text' ? 'Text' : 'Element'}</span><button class="btn primary small icon" data-act="done" aria-label="Fertig" title="Fertig"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></button>`; return; }
+  if (m === 'text' || m === 'shape' || m === 'slot') { head.innerHTML = `<span class="title">${m === 'text' ? 'Text' : m === 'slot' ? 'Leeres Feld' : 'Element'}</span><button class="btn primary small icon" data-act="done" aria-label="Fertig" title="Fertig"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></button>`; return; }
   const n = state.layers.filter(x => x.type === 'image').indexOf(l) + 1;
   head.innerHTML = `<span class="title">Foto ${n}</span>
     <button class="btn ghost small" data-act="before" aria-label="Vorher anzeigen, gedrückt halten" title="Gedrückt halten: Vorher">Vorher</button>
@@ -318,13 +323,13 @@ function autoFix(l) {
 
 /* ---------- Regler ---------- */
 const fmtSigned = v => (v > 0 ? '+' : v < 0 ? '−' : '') + de(Math.abs(Math.round(v)));
-const FMT = { signed: fmtSigned, ev: v => (v > 0 ? '+' : v < 0 ? '−' : '') + de(Math.abs(v), 2) + ' EV', pct: v => de(Math.round(v)) + ' %', deg: v => fmtSigned(v) + '°', hue: v => de(Math.round(v)) + '°', px: v => de(Math.round(v)) + ' px', x: v => de(v, 2) + '×', n: v => de(Math.round(v)), lh: v => de(v, 2) };
+const FMT = { d1: v => de(v, 1), signed: fmtSigned, ev: v => (v > 0 ? '+' : v < 0 ? '−' : '') + de(Math.abs(v), 2) + ' EV', pct: v => de(Math.round(v)) + ' %', deg: v => fmtSigned(v) + '°', hue: v => de(Math.round(v)) + '°', px: v => de(Math.round(v)) + ' px', x: v => de(v, 2) + '×', n: v => de(Math.round(v)), lh: v => de(v, 2) };
 /* Ziel-Objekte für Regler-Schlüssel "ns.feld" */
 function target(ns) {
   const l = selLayer(), P = l && l.params;
   switch (ns) {
     case 'p': return P; case 'l': return l; case 'c': return l.crop; case 'h': return P.hsl[ui.hslBand]; case 'g': return P.grade[ui.gradeRange]; case 'gr': return P.grade;
-    case 'm': return P.masks[ui.maskSel]; case 'b': return P.blur; case 'pv': return P.persp; case 'ui': return ui; case 'bg': return state.bg;
+    case 'm': return P.masks[ui.maskSel]; case 'b': return P.blur; case 'pv': return P.persp; case 'ui': return ui; case 'bg': return state.bg; case 'tp': return state.tpl;
   }
 }
 function getVal(k) { const [ns, f] = k.split('.'); if (k === 'l.wpct') return Math.round(selLayer().w / dims().W * 100); const t = target(ns); return t ? t[f] : 0; }
@@ -344,7 +349,10 @@ panel.addEventListener('input', e => {
   if (t.matches('input[type=range][data-k]')) {
     const v = +t.value; setVal(t.dataset.k, v / +t.dataset.scale); t.closest('.sl').querySelector('output').textContent = FMT[t.dataset.fmt](v);
     t.closest('.sl').classList.toggle('changed', v !== +t.dataset.def); paintFill(t);
-    if (t.dataset.k.startsWith('h.')) markBands(); if (t.dataset.k.startsWith('g.')) markGrade(); requestRender();
+    if (t.dataset.k.startsWith('h.')) markBands(); if (t.dataset.k.startsWith('g.')) markGrade();
+    if (t.dataset.k.startsWith('tp.')) layout(false);
+    if (t.dataset.k.startsWith('c.') && l && l.crop.box) delete l.crop.box;
+    requestRender();
   } else if (t.id === 'txtIn') { l.text = t.value; requestRender(); }
   else if (t.id === 'capIn') { l.caption = t.value; requestRender(); }
   else if (t.matches('input[type=color][data-col]')) { applyColor(t.dataset.col, t.value); requestRender(); }
@@ -383,6 +391,7 @@ function renderPanel() {
   if (m === 'none') h = t === 'vorlagen' ? panelTemplates() : t === 'ebenen' ? panelLayers() : t === 'element' ? panelElements() : panelCanvas();
   else if (m === 'text') h = t === 'stil' ? panelTextStyle(l) : t === 'ebene' ? panelLayerCommon(l) : panelText(l);
   else if (m === 'shape') h = t === 'ebene' ? panelLayerCommon(l) : panelShape(l);
+  else if (m === 'slot') h = panelSlot(l);
   else h = (IMAGE_PANELS[t] || IMAGE_PANELS.looks)(l, l.params);
   const keep = panel.dataset.key === m + t ? panel.scrollTop : 0;
   panel.innerHTML = h; panel.dataset.key = m + t; panel.scrollTop = keep;
@@ -404,9 +413,22 @@ function panelCanvas() {
   <div class="row">${btn('clear', ui.confirmClear ? 'Wirklich alles leeren?' : 'Neues leeres Projekt', 'danger')}${btn('sample', 'Beispiel laden')}</div>`;
 }
 function panelTemplates() {
-  const n = state.layers.filter(l => l.type === 'image').length;
-  return `${n ? '' : '<p class="note">Füge zuerst Fotos hinzu, dann ordnet eine Vorlage sie an. Fehlen Fotos, werden vorhandene wiederholt.</p>'}<div class="tpl-grid">${TEMPLATES.map(([k, nm, d]) => `<button class="tpl" data-tpl="${k}">${miniSVG(k)}<b>${nm}</b><span>${d}</span></button>`).join('')}</div>
-  <p class="note">Vorlagen ordnen deine vorhandenen Fotos neu an. Rückgängig geht jederzeit oben links.</p>`;
+  const t = state.tpl, def = t && tplDef(t.kind), cat = ui.tplCat || 'all';
+  const list = TEMPLATES.filter(T => cat === 'all' || T.cat === cat), nPh = state.layers.filter(l => l.type === 'image' && !l.srcId).length;
+  const cur = def ? `<div class="tpl-cur">
+    <div class="row"><b class="grow">${def.name}</b>${btn('tplShuffle', 'Fotos mischen')}${btn('tplRelease', 'Lösen')}</div>
+    <div class="vars">${def.vars.map((vn, i) => `<button class="var" data-tplvar="${i}" aria-pressed="${t.v === i}">${tplSVG(def.id, i)}<span>${vn}</span></button>`).join('')}</div>
+    ${slider('tp.gap', 'Abstand', 0, 8, .1, 'd1', (def.gap ?? .025) * 100, 100)}${slider('tp.rad', 'Ecken', 0, 40, 1, 'n', 0)}
+    <div class="row"><span class="note">Schatten</span><div class="chips">${[['tpl', 'Vorlage'], ['on', 'An'], ['off', 'Aus']].map(([k, lb]) => chip(`data-tplshadow="${k}"`, lb, (t.shadow == null ? 'tpl' : t.shadow ? 'on' : 'off') === k)).join('')}</div></div>
+    <div class="row"><span class="note">Leere Felder</span><div class="chips">${chip('data-tplfill="ph"', 'Platzhalter', t.fill !== 'repeat')}${chip('data-tplfill="repeat"', 'Fotos wiederholen', t.fill === 'repeat')}</div></div>
+    ${nPh ? `<p class="note"><b>${nPh} leere${nPh === 1 ? 's Feld' : ' Felder'}</b> – tippe auf ein „+“ oder <label class="linkish" for="fileIn">wähle Fotos</label>, sie werden der Reihe nach eingesetzt.</p>` : ''}
+  </div>` : `<p class="note">Wähle eine Vorlage – leere Felder füllst du danach per Antippen. Nochmal tippen wechselt die Variante.</p>`;
+  return `${cur}<div class="chips scroll">${TPL_CATS.map(([k, lb]) => chip(`data-tplcat="${k}"`, lb, cat === k)).join('')}</div>
+  <div class="tpl-grid">${list.map(T => { const on = t && t.kind === T.id; return `<button class="tpl${on ? ' on' : ''}" data-tpl="${T.id}">${tplSVG(T.id, on ? t.v : 0)}<b>${T.name}</b><span>${T.vars.length} Variante${T.vars.length === 1 ? '' : 'n'} · ${T.desc}</span></button>`; }).join('')}</div>`;
+}
+function panelSlot(l) {
+  return `<p class="note">Ein leeres Feld der Vorlage. Setze ein Foto ein – mehrere ausgewählte Fotos füllen die nächsten leeren Felder.</p>
+  <div class="row"><label class="btn primary" for="fileIn" data-fillslot="${l.id}">Foto einsetzen</label><label class="btn ghost" for="camIn" data-fillslot="${l.id}">Kamera</label>${btn('del', 'Feld entfernen', 'danger')}</div>`;
 }
 const layerName = l => l.type === 'image' ? `Foto ${state.layers.filter(x => x.type === 'image').indexOf(l) + 1}` : l.type === 'text' ? `„${esc((l.text || '').split('\n')[0].slice(0, 18))}“` : (SHAPES.find(s => s[0] === l.kind) || ['', 'Form'])[1];
 const ICON = { image: '▣', text: 'T', shape: '◆' };
@@ -563,6 +585,7 @@ function panelShape(l) {
 }
 
 panel.addEventListener('click', async e => {
+  const fs = e.target.closest('[data-fillslot]'); if (fs) { ui.fillSlot = +fs.dataset.fillslot; return; }
   const t = e.target.closest('button'); if (!t || t.disabled) return; const l = selLayer(); const d = t.dataset;
   if (d.format) { const oh = dims().H; state.format = d.format; const nh = dims().H; state.layers.forEach(x => x.y *= nh / oh); fit(); commit(); }
   else if (d.slides) { state.slides = clamp(state.slides + +d.slides, 1, 20); fit(); commit(); }
@@ -574,14 +597,19 @@ panel.addEventListener('click', async e => {
     else if (k === 'outline') l.outline = on; else if (k === 'minv') l.params.masks[ui.maskSel].inv = on;
     commit();
   }
-  else if (d.tpl) { if (applyTemplate(d.tpl)) { ui.sel = null; commit(); toast('Vorlage angewendet'); } }
+  else if (d.tpl) { const T = tplDef(d.tpl), v = state.tpl && state.tpl.kind === d.tpl ? (state.tpl.v + 1) % T.vars.length : 0; const n0 = state.slides;
+    applyTemplate(d.tpl, v); ui.sel = null; fit(); panel.dataset.key = ''; commit(); toast(`${T.name} · ${T.vars[v]}${state.slides !== n0 ? ` · ${state.slides} Slides` : ''}${layout.hiddenCount ? ` · ${layout.hiddenCount} Foto${layout.hiddenCount === 1 ? '' : 's'} ausgeblendet` : ''}`); }
+  else if (d.tplvar) { applyTemplate(state.tpl.kind, +d.tplvar); fit(); commit(); }
+  else if (d.tplcat) { ui.tplCat = d.tplcat; renderPanel(); }
+  else if (d.tplshadow) { state.tpl.shadow = d.tplshadow === 'tpl' ? null : d.tplshadow === 'on'; layout(false); commit(); }
+  else if (d.tplfill) { state.tpl.fill = d.tplfill; layout(false); commit(); }
   else if (d.lookcat) { ui.lookCat = d.lookcat; renderPanel(); }
   else if (d.look) { const was = l.params.look; l.params.look = d.look; if (LOOKS[d.look].stamp && was !== d.look) l.params.stamp = true; if (!LOOKS[d.look].stamp && LOOKS[was]?.stamp) l.params.stamp = false; commit(); }
   else if (d.preset) { const pr = loadPresets()[+d.preset]; if (pr) { l.params = upgradeParams(clone(pr.params)); toast(`Preset „${pr.name}“ angewendet`); commit(); } }
   else if (d.band) { ui.hslBand = +d.band; renderPanel(); }
   else if (d.grade) { ui.gradeRange = d.grade; renderPanel(); }
   else if (d.curve) { ui.curveCh = d.curve; renderPanel(); }
-  else if (d.ratio) { l.crop.ratio = d.ratio === 'orig' ? 'orig' : +d.ratio; commit(); }
+  else if (d.ratio) { l.crop.ratio = d.ratio === 'orig' ? 'orig' : +d.ratio; delete l.crop.box; commit(); }
   else if (d.shape) { l.shape = d.shape; if (d.shape === 'film') l.borderColor = '#161616'; else if (d.shape === 'dia') l.borderColor = '#ece8de'; else if (FRAMES.has(d.shape) && l.borderColor === '#161616') l.borderColor = '#ffffff'; commit(); }
   else if (d.blend) { l.blend = d.blend; commit(); }
   else if (d.font) { l.font = d.font; commit(); }
@@ -608,7 +636,7 @@ panel.addEventListener('click', async e => {
   else if (d.lup || d.ldown) { const id = +(d.lup || d.ldown), i = state.layers.findIndex(y => y.id === id), j = i + (d.lup ? 1 : -1); if (j >= 0 && j < state.layers.length) { const [x] = state.layers.splice(i, 1); state.layers.splice(j, 0, x); } commit(); }
   else if (d.act2) action(d.act2, l);
 });
-function commit() { pushHistory(); renderUI(); }
+function commit() { const l = selLayer(); if (l && l.tplKey && l.type === 'text') l.userEdited = true; pushHistory(); renderUI(); }
 function shiftSlide(i, dir) { // Inhalte von Slide i mit Nachbar tauschen
   const { W } = dims(), j = i + dir; if (j < 0 || j >= state.slides) return false;
   state.layers.forEach(l => { const s = Math.floor(l.x / W); if (s === i) l.x += dir * W; else if (s === j) l.x -= dir * W; }); return true;
@@ -633,18 +661,20 @@ function action(a, l) {
     case 'pick': ui.pick = !ui.pick; renderPanel(); updateTop(); return;
     case 'rot90': { const a0 = cropAspect(l), h0 = l.w / a0; l.rot90 = (l.rot90 + 1) % 4; if (l.crop.ratio === 'orig') l.w = h0; resetGeoEdits(l); commit(); return; }
     case 'flip': l.flip = !l.flip; resetGeoEdits(l); commit(); return;
+    case 'tplShuffle': shufflePhotos(); commit(); toast('Fotos neu gemischt'); return;
+    case 'tplRelease': releaseTemplate(); commit(); toast('Vorlage gelöst – alles frei verschiebbar'); return;
     case 'cropReset': l.crop = { ratio: 'orig', zoom: 1, px: .5, py: .5 }; l.rot = 0; P.persp = { v: 0, h: 0 }; commit(); return;
     case 'fillSlide': coverSlide(l, clamp(Math.floor(l.x / W), 0, state.slides - 1)); commit(); return;
     case 'fillAll': coverAll(l); commit(); return;
     case 'center': l.x = (clamp(Math.floor(l.x / W), 0, state.slides - 1) + .5) * W; l.y = H / 2; commit(); return;
     case 'replace': ui.replaceId = l.id; $('#fileIn').removeAttribute('multiple'); $('#fileIn').click(); setTimeout(() => $('#fileIn').setAttribute('multiple', ''), 1000); return;
-    case 'bgBlur': { const c = clone(l); c.id = newId(); c.shape = 'rect'; c.border = 0; c.shadow = false; c.opacity = 1; c.blend = 'source-over'; c.crop = { ratio: 'orig', zoom: 1, px: .5, py: .5 }; coverAll(c);
+    case 'bgBlur': { const c = unlinked(clone(l)); c.id = newId(); c.shape = 'rect'; c.border = 0; c.shadow = false; c.opacity = 1; c.blend = 'source-over'; c.crop = { ratio: 'orig', zoom: 1, px: .5, py: .5 }; coverAll(c);
       c.params.blur = { mode: 'radial', x: .5, y: .5, size: 0, feather: .02, amt: 100, angle: 0 }; c.params.exposure = -.35; c.params.stamp = false; c.params.masks = []; c.params.brush = []; c.params.heal = [];
       state.layers.unshift(c); commit(); toast('Unscharfer Hintergrund über alle Slides angelegt'); return; }
     case 'lock': l.locked = !l.locked; commit(); toast(l.locked ? 'Gesperrt' : 'Entsperrt'); return;
     case 'front': { const i = state.layers.indexOf(l); if (i < state.layers.length - 1) { state.layers.splice(i, 1); state.layers.splice(i + 1, 0, l); } commit(); toast('Eine Ebene nach vorn'); return; }
     case 'back': { const i = state.layers.indexOf(l); if (i > 0) { state.layers.splice(i, 1); state.layers.splice(i - 1, 0, l); } commit(); toast('Eine Ebene nach hinten'); return; }
-    case 'dup': { const c = clone(l); c.id = newId(); c.x += 60; c.y += 60; c.locked = false; state.layers.splice(state.layers.indexOf(l) + 1, 0, c); ui.sel = c.id; commit(); return; }
+    case 'dup': { const c = unlinked(clone(l)); c.id = newId(); c.x += 60; c.y += 60; c.locked = false; state.layers.splice(state.layers.indexOf(l) + 1, 0, c); ui.sel = c.id; commit(); return; }
     case 'del': state.layers = state.layers.filter(x => x !== l); cache.delete(l.id); ui.sel = null; commit(); toast('Gelöscht – oben links rückgängig machen'); return;
     case 'copy': ui.clip = clone(l.params); toast('Bearbeitung kopiert'); renderPanel(); return;
     case 'paste': if (ui.clip) { const keep = { heal: P.heal, brush: P.brush, masks: P.masks }; l.params = upgradeParams(clone(ui.clip)); Object.assign(l.params, keep); commit(); toast('Bearbeitung eingefügt'); } return;
@@ -660,6 +690,8 @@ function action(a, l) {
     case 'healClear': P.heal = []; commit(); return;
   }
 }
+/* Kopie ohne Vorlagen-Verknüpfung */
+function unlinked(c) { for (const k of ['grp', 'dupOf', 'slot', 'tplKind', 'tplKey', 'pane', 'paneKey', 'userEdited']) delete c[k]; if (c.crop) delete c.crop.box; if (c.params) c.params = clone(c.params); return c; }
 /* Drehen/Spiegeln verändert das Bildkoordinatensystem – ortsgebundene Bearbeitungen passen dann nicht mehr */
 function resetGeoEdits(l) { const P = l.params; if (P.masks.length || P.brush.length || P.heal.length) toast('Punkte, Pinsel und Reparaturen wurden zurückgesetzt'); P.masks = []; P.brush = []; P.heal = []; }
 function loadPresets() { try { return JSON.parse(localStorage.getItem('streifzug.presets') || '[]'); } catch { return []; } }
@@ -731,37 +763,48 @@ function setupCurve() {
 /* ---------- Fotos laden ---------- */
 async function addFiles(files) {
   files = [...files].filter(f => f.type.startsWith('image/') || /\.(heic|heif|jpe?g|png|webp|avif)$/i.test(f.name));
-  if (!files.length) return;
-  if (ui.sample) { state.layers = []; cache.clear(); sources.clear(); ui.sample = false; ui.projectId = null; ui.projectName = 'Mein Karussell'; }
+  if (!files.length) { ui.fillSlot = null; return; }
+  if (ui.sample) { state.layers = []; state.tpl = null; cache.clear(); sources.clear(); ui.sample = false; ui.projectId = null; ui.projectName = 'Mein Karussell'; }
   toast(files.length === 1 ? 'Foto wird geladen …' : `${files.length} Fotos werden geladen …`);
-  const start = visibleSlide(); const added = [];
+  // leere Vorlagen-Felder zuerst füllen – das angetippte zuerst
+  const empties = state.layers.filter(l => l.type === 'image' && !l.srcId).sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0));
+  if (ui.fillSlot) { const i = empties.findIndex(l => l.id === ui.fillSlot); if (i > 0) empties.unshift(empties.splice(i, 1)[0]); ui.fillSlot = null; }
+  const start = visibleSlide(); const added = []; let free = 0;
   for (let k = 0; k < files.length; k++) {
     const f = files[k], id = 's' + newId();
     const src = { kind: 'file', file: f, nw: 0, nh: 0, date: f.lastModified || Date.now(), base: null };
     sources.set(id, src);
     try { src.base = await loadScaled(src, PREVIEW_PX); }
     catch { toast(`„${f.name}“ konnte nicht gelesen werden.`); sources.delete(id); continue; }
-    const l = newImageLayer(id); coverSlide(l, (start + k) % state.slides);
-    state.layers.push(l); added.push(l); requestRender();
+    const slot = empties.shift();
+    if (slot) {
+      const group = slot.paneKey ? state.layers.filter(x => x.type === 'image' && !x.srcId && x.paneKey === slot.paneKey) : [slot];
+      group.forEach((x, gi) => { x.srcId = id; x.ph = false; x.stampMs = src.date; x.params = slot.params; if (gi) x.dupOf = slot.id;
+        if (x.pane) { x.grp = slot.paneKey + ':' + slot.id; computeBox(x); } const ei = empties.indexOf(x); if (ei >= 0) empties.splice(ei, 1); });
+      added.push(slot);
+    } else { const l = newImageLayer(id); coverSlide(l, (start + free++) % state.slides); state.layers.push(l); added.push(l); }
+    requestRender();
   }
-  if (added.length) { ui.tab.image = 'looks'; selectLayer(added[added.length - 1].id); pushHistory(); toast(added.length === 1 ? 'Foto hinzugefügt' : `${added.length} Fotos hinzugefügt`); }
+  if (free && state.tpl) { const n0 = state.slides; layout(true); fit(); if (state.slides !== n0) toast(`In die Vorlage einsortiert · ${state.slides} Slides`); }
+  if (added.length) { ui.tab.image = 'looks'; selectLayer(added[added.length - 1].id); pushHistory(); if (!free || !state.tpl) toast(added.length === 1 ? 'Foto eingesetzt' : `${added.length} Fotos eingesetzt`); }
 }
 async function replacePhoto(f) {
   const l = state.layers.find(x => x.id === ui.replaceId); ui.replaceId = null; if (!l || !f) return;
   const id = 's' + newId(), src = { kind: 'file', file: f, nw: 0, nh: 0, date: f.lastModified || Date.now(), base: null };
   try { src.base = await loadScaled(src, PREVIEW_PX); } catch { toast('Foto konnte nicht gelesen werden.'); return; }
-  sources.set(id, src); l.srcId = id; l.stampMs = src.date; resetGeoEdits(l); cache.delete(l.id); commit(); toast('Foto ersetzt – Bearbeitung bleibt');
+  sources.set(id, src); cache.delete(cacheKey(l)); l.srcId = id; l.stampMs = src.date; resetGeoEdits(l);
+  relink(l.id); state.layers.filter(x => x.pane && x.srcId === id).forEach(computeBox); commit(); toast('Foto ersetzt – Bearbeitung bleibt');
 }
 
 /* ---------- Projekte ---------- */
 function resetSession() { cache.clear(); sources.clear(); hist = []; hIdx = -1; ui.sel = null; ui.clip = ui.clip || null; savedSrc = new Set(); }
 function newProject() {
   saveNow(); resetSession(); ui.confirmClear = false; ui.sample = false; ui.projectId = null; ui.projectName = 'Mein Karussell';
-  state.layers = []; state.bg = { c1: '#efece6', c2: '#a8c5b5', grad: false, dir: 'h', pattern: 'none' }; fit(); pushHistory(); renderUI(); toast('Neues Projekt');
+  state.layers = []; state.tpl = null; state.bg = { c1: '#efece6', c2: '#a8c5b5', grad: false, dir: 'h', pattern: 'none' }; fit(); pushHistory(); renderUI(); toast('Neues Projekt');
 }
 function loadSample() {
   if (!ui.sample) saveNow();
-  resetSession(); ui.sample = true; ui.projectId = null; ui.projectName = 'Beispiel'; state.format = '4:5'; state.slides = 3;
+  resetSession(); ui.sample = true; ui.projectId = null; ui.projectName = 'Beispiel'; state.format = '4:5'; state.slides = 3; state.tpl = null;
   state.bg = { c1: '#efece6', c2: '#a8c5b5', grad: false, dir: 'h', pattern: 'none' };
   const id = 's0'; sources.set(id, { kind: 'gen', draw: drawSample, nw: 4800, nh: 2000, date: Date.now(), base: drawSample(PREVIEW_PX) });
   const { W, H } = dims();
@@ -777,8 +820,9 @@ async function openProject(id, quiet) {
   for (const f of r.files) { const src = { kind: 'file', file: f.blob, nw: 0, nh: 0, date: f.date || Date.now(), base: null };
     try { src.base = await loadScaled(src, PREVIEW_PX); sources.set(f.srcId, src); savedSrc.add(f.srcId); } catch { console.warn('Quelle fehlt', f.srcId); } }
   const doc = r.project.doc; state.format = FORMATS[doc.format] ? doc.format : '4:5'; state.slides = doc.slides; state.bg = Object.assign({ dir: 'h', pattern: 'none' }, doc.bg);
-  state.layers = doc.layers.filter(l => l.type !== 'image' || sources.has(l.srcId));
-  state.layers.forEach(l => { if (l.type === 'image') { upgradeParams(l.params); if (l.stampMs == null) l.stampMs = sources.get(l.srcId).date; } });
+  state.tpl = doc.tpl || null;
+  state.layers = doc.layers.filter(l => l.type !== 'image' || !l.srcId || sources.has(l.srcId)); relink();
+  state.layers.forEach(l => { if (l.type === 'image') { upgradeParams(l.params); if (l.stampMs == null) l.stampMs = sources.get(l.srcId)?.date || Date.now(); } });
   ids.n = Math.max(1, ...state.layers.map(l => l.id + 1), ...[...sources.keys()].map(k => +k.slice(1) + 1 || 1));
   store.lastProject(id); fit(); pushHistory(); renderUI(); return true;
 }
@@ -810,7 +854,7 @@ function openPreview() {
   $('#previewSheet').hidden = false;
   for (let i = 0; i < state.slides; i++) {
     const c = mk(cw, chh); const x = c.getContext('2d');
-    x.scale(cw / W, cw / W); x.translate(-i * W, 0); drawScene(x); track.appendChild(c);
+    x.scale(cw / W, cw / W); x.translate(-i * W, 0); drawScene(x, { clean: true }); track.appendChild(c);
     dots.insertAdjacentHTML('beforeend', `<i class="${i ? '' : 'on'}"></i>`);
   }
   $('#igCount').textContent = `1/${state.slides}`; track.scrollLeft = 0;
@@ -831,21 +875,21 @@ async function webSave(items) {
   return true;
 }
 async function doExport() {
-  if (!state.layers.length) { toast('Füge zuerst ein Foto hinzu.'); return; }
+  if (!state.layers.some(l => l.type !== 'image' || l.srcId)) { toast('Füge zuerst ein Foto hinzu.'); return; }
   selectLayer(null);
   const sheet = $('#exportSheet'), grid = $('#expGrid'), prog = $('#expProgress'), note = $('#expNote');
   exportBlobs.forEach(b => URL.revokeObjectURL(b.url)); exportBlobs = [];
   sheet.hidden = false; grid.innerHTML = ''; note.textContent = ''; $('#saveAll').hidden = true; renderExpOpts();
-  const { W, H } = dims(), procs = new Map(), imgs = state.layers.filter(l => l.type === 'image' && !l.hidden);
+  const { W, H } = dims(), procs = new Map(), all = state.layers.filter(l => l.type === 'image' && !l.hidden && l.srcId), byKey = new Map();
+  for (const l of all) { const src = sources.get(l.srcId); if (!src) continue; const odd = l.rot90 % 2, onw = odd ? src.nh : src.nw, onh = odd ? src.nw : src.nh, [, , swp] = cropRect(onw, onh, l);
+    const need = Math.max(onw, onh) * Math.min(1, l.w / swp) * 1.05, k = cacheKey(l), e = byKey.get(k); if (!e || need > e.need) byKey.set(k, { l, need }); }
+  const imgs = [...byKey.values()];
   const mime = expOpt.type === 'png' ? 'image/png' : 'image/jpeg', ext = expOpt.type === 'png' ? 'png' : 'jpg';
   try {
     for (let k = 0; k < imgs.length; k++) {
-      const l = imgs[k]; prog.textContent = `Foto ${k + 1} von ${imgs.length} wird in voller Auflösung entwickelt …`; await pause(30);
-      const src = sources.get(l.srcId); if (!src) continue;
-      const odd = l.rot90 % 2, onw = odd ? src.nh : src.nw, onh = odd ? src.nw : src.nh;
-      const [, , swp] = cropRect(onw, onh, l), need = Math.max(onw, onh) * Math.min(1, l.w / swp) * 1.05;
+      const { l, need } = imgs[k], src = sources.get(l.srcId); prog.textContent = `Foto ${k + 1} von ${imgs.length} wird in voller Auflösung entwickelt …`; await pause(30);
       const base = await loadScaled(src, Math.min(4320, Math.ceil(need))), o = orientCanvas(base, l.rot90, l.flip), pr = prepare(o, l.params);
-      procs.set(l.id, processImage(makeAux(pr), l.params, l.stampMs));
+      procs.set(cacheKey(l), processImage(makeAux(pr), l.params, l.stampMs));
     }
     const push = async (c, name, label) => {
       const blob = await new Promise(r => c.toBlob(r, mime, .93)); const url = URL.createObjectURL(blob), i = exportBlobs.length; exportBlobs.push({ blob, url, name });
@@ -903,5 +947,5 @@ if (document.fonts) {
   Promise.all(FONTS.map(f => document.fonts.load(`${f[2]} 40px "${f[0]}"`))).catch(() => {}).then(() => { flags.fontsTick++; requestRender(); });
 }
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
-window.__streifzug = { state, ui, view, sources, cache, action, applyTemplate, selectLayer, commit, render, addFiles, saveNow, openProject,
-  snapshot: (h = 360) => { const { W, H } = dims(), T = W * state.slides, c = mk(T * h / H, h), x = c.getContext('2d'); x.scale(h / H, h / H); drawScene(x); return c.toDataURL('image/jpeg', .85); } };
+window.__streifzug = { state, ui, view, sources, cache, action, applyTemplate, layout, fit, selectLayer, commit, render, addFiles, saveNow, openProject,
+  snapshot: (h = 360) => { const { W, H } = dims(), T = W * state.slides, c = mk(T * h / H, h), x = c.getContext('2d'); x.scale(h / H, h / H); drawScene(x, { clean: true }); return c.toDataURL('image/jpeg', .85); } };

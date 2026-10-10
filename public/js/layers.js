@@ -1,6 +1,6 @@
 /* Ebenen anlegen und platzieren */
 import { state, sources, dims, newId, defParams } from './core.js';
-import { cropAspect } from './scene.js';
+import { cropAspect, orientedAspect } from './scene.js';
 
 export function newImageLayer(srcId, x = 0, y = 0, w = 100) {
   const src = sources.get(srcId);
@@ -25,3 +25,11 @@ export function coverSlide(l, i) {
 export function coverAll(l) { const { W, H } = dims(), T = W * state.slides, a = cropAspect(l); l.w = Math.max(T, H * a); l.x = T / 2; l.y = H / 2; l.rot = 0; }
 /* Foto exakt in ein Rechteck einpassen (Zuschnitt passend) */
 export function fitRect(l, x0, y0, w, h) { l.crop.ratio = w / h; l.w = w; l.x = x0 + w / 2; l.y = y0 + h / 2; l.rot = 0; }
+
+/* Ausschnitt für ein Panorama-Fenster: das Foto bedeckt die Fläche R, das Fenster S zeigt den passenden Teil */
+export function computeBox(l) {
+  if (!l.pane || !sources.get(l.srcId)) { if (l.crop) delete l.crop.box; return; }
+  const [rx, ry, rw, rh] = l.pane.R, [sx, sy, sw, sh] = l.pane.S, ia = orientedAspect(l), ra = rw / rh;
+  if (ia > ra) { const fw = ra / ia; l.crop.box = [(1 - fw) / 2 + (sx - rx) / rw * fw, (sy - ry) / rh, sw / rw * fw, sh / rh]; }
+  else { const fh = ia / ra; l.crop.box = [(sx - rx) / rw, (1 - fh) / 2 + (sy - ry) / rh * fh, sw / rw, sh / rh * fh]; }
+}

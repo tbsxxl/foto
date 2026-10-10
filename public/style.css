@@ -197,3 +197,14 @@ label.btn{cursor:pointer}
   .stage-hint{font-size:11px}
 }
 @media (max-width:360px){ #redoBtn{display:none} }
+/* Vorlagen */
+.tpl-cur{display:flex;flex-direction:column;gap:10px;background:var(--surface-2);border:1px solid var(--line);border-radius:14px;padding:12px}
+.vars{display:flex;gap:8px;overflow-x:auto;margin-inline:-12px;padding:2px 12px 4px;scrollbar-width:none}
+.vars::-webkit-scrollbar{display:none}
+.var{flex:0 0 auto;width:118px;display:flex;flex-direction:column;gap:4px;align-items:stretch;font-size:12px;color:var(--muted);text-align:center}
+.var svg{width:100%;height:auto;display:block;border-radius:6px;outline:2px solid transparent;outline-offset:2px}
+.var[aria-pressed="true"]{color:var(--fg)}
+.var[aria-pressed="true"] svg{outline-color:var(--accent)}
+.tpl.on{border-color:var(--accent)}
+.tpl svg{border-radius:6px}
+.linkish{color:var(--accent);text-decoration:underline;cursor:pointer}

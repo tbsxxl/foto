@@ -27,6 +27,7 @@ export async function loadScaled(src, maxLong) {
 export function orientedAspect(l) { const s = sources.get(l.srcId); if (!s || !s.nw) return 1.5; return l.rot90 % 2 ? s.nh / s.nw : s.nw / s.nh; }
 export function cropAspect(l) { return l.crop.ratio === 'orig' ? orientedAspect(l) : l.crop.ratio; }
 export function cropRect(iw, ih, l) {
+  const bx = l.crop.box; if (bx) return [bx[0] * iw, bx[1] * ih, bx[2] * iw, bx[3] * ih]; // fester Ausschnitt (Panorama-Fenster)
   const a = cropAspect(l), z = l.crop.zoom; let sw, sh;
   if (iw / ih > a) { sh = ih / z; sw = sh * a; } else { sw = iw / z; sh = sw / a; }
   return [(iw - sw) * l.crop.px, (ih - sh) * l.crop.py, sw, sh];
@@ -104,8 +105,10 @@ export function drawScene(c, opts = {}) {
     c.restore();
   }
 }
+/* verknüpfte Fenster eines Fotos teilen sich die Berechnung */
+export const cacheKey = l => l.grp ? 'g:' + l.grp : l.id;
 export function ensureCache(l) {
-  let c = cache.get(l.id); if (!c) { c = {}; cache.set(l.id, c); }
+  const ck = cacheKey(l); let c = cache.get(ck); if (!c) { c = {}; cache.set(ck, c); }
   const src = sources.get(l.srcId); if (!src || !src.base) return null;
   const ok = l.srcId + '|' + l.rot90 + '|' + (l.flip ? 1 : 0);
   if (c.orientKey !== ok) { c.orient = orientCanvas(src.base, l.rot90, l.flip); c.orientKey = ok; c.prepKey = null; c.thumbAux = null; c.thumbs = {}; }
@@ -121,14 +124,15 @@ export function ensureCache(l) {
   }
   return c;
 }
-export function releaseAux(id) { const c = cache.get(id); if (c) c.aux = null; }
+export function releaseAux(l) { const c = l && cache.get(cacheKey(l)); if (c) c.aux = null; }
 
 function drawImageLayer(c, l, opts) {
   const bx = boxOf(l);
   let img = null;
-  if (opts.procs) img = opts.procs.get(l.id);
-  else { const ch = ensureCache(l); if (ch) img = ui.showOrig && l.id === ui.sel ? ch.orient : ch.proc; }
   const { ow, oh, bb, w, h, iy } = bx, framed = FRAMES.has(l.shape), clip = framed ? 'rect' : l.shape;
+  if (!l.srcId) { if (!opts.procs && !opts.clean) drawPlaceholder(c, l, bx, clip, framed); return; }
+  if (opts.procs) img = opts.procs.get(cacheKey(l));
+  else { const ch = ensureCache(l); if (ch) img = ui.showOrig && l.id === ui.sel ? ch.orient : ch.proc; }
   if (framed) drawFrame(c, l, bx);
   else if (bb > 0 || l.shadow) {
     c.save();
@@ -142,6 +146,16 @@ function drawImageLayer(c, l, opts) {
   else { c.fillStyle = 'rgba(128,128,128,.35)'; c.fillRect(-w / 2, -h / 2 + iy, w, h); }
   c.restore();
   if (l.shape === 'dia') { c.save(); c.strokeStyle = 'rgba(0,0,0,.18)'; c.lineWidth = ow * .006; c.strokeRect(-w / 2, -h / 2 + iy, w, h); c.restore(); }
+}
+/* leeres Vorlagen-Feld: antippen, um ein Foto einzusetzen */
+function drawPlaceholder(c, l, bx, clip, framed) {
+  const { w, h, iy, ow } = bx;
+  if (framed) drawFrame(c, l, bx);
+  c.save(); shapePath(c, clip, -w / 2, -h / 2 + iy, w, h, l.radius ?? 7); c.fillStyle = framed ? 'rgba(150,150,150,.45)' : 'rgba(150,150,150,.32)'; c.fill();
+  c.setLineDash([Math.max(8, w * .03), Math.max(6, w * .02)]); c.lineWidth = Math.max(3, Math.min(w, h) * .012); c.strokeStyle = 'rgba(255,255,255,.75)'; c.stroke(); c.setLineDash([]);
+  const r = Math.max(18, Math.min(w, h, ow) * .11); c.fillStyle = 'rgba(255,255,255,.88)'; c.beginPath(); c.arc(0, iy, r, 0, Math.PI * 2); c.fill();
+  c.strokeStyle = '#1d1d1d'; c.lineWidth = r * .16; c.lineCap = 'round'; c.beginPath(); c.moveTo(-r * .45, iy); c.lineTo(r * .45, iy); c.moveTo(0, iy - r * .45); c.lineTo(0, iy + r * .45); c.stroke();
+  c.restore();
 }
 function drawFrame(c, l, bx) {
   const { ow, oh, w, h, iy } = bx, x0 = -ow / 2, y0 = -oh / 2;
