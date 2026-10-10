@@ -1071,6 +1071,17 @@ let keyT;
 stage.addEventListener('dragover', e => e.preventDefault());
 stage.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files); });
 
+/* ---------- Bildschirmhöhe (iOS meldet sie je nach Modus unterschiedlich) ---------- */
+function setAppHeight() {
+  let h = Math.max(window.innerHeight || 0, window.visualViewport ? visualViewport.height : 0, document.documentElement.clientHeight || 0);
+  const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+  if (standalone && screen.height) { const portrait = innerHeight >= innerWidth; h = Math.max(h, portrait ? Math.max(screen.height, screen.width) : Math.min(screen.height, screen.width)); }
+  document.documentElement.style.setProperty('--app-h', Math.round(h) + 'px');
+}
+setAppHeight();
+addEventListener('resize', setAppHeight); addEventListener('orientationchange', () => setTimeout(setAppHeight, 300));
+window.visualViewport && visualViewport.addEventListener('resize', setAppHeight);
+
 /* ---------- Start ---------- */
 new ResizeObserver(resize).observe(stage);
 resize();

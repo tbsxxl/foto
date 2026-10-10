@@ -1,4 +1,4 @@
-:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}
+:root{color-scheme:light;box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}
 
 /* Layout: Werkbank – oben die Bühne mit dem durchgehenden Karussell-Streifen, darunter (Desktop: rechts) das Werkzeug-Dock wie in einer Foto-App */
 :root{
@@ -274,4 +274,8 @@ input[type=range]{height:32px}
 .help b{color:var(--fg);font-weight:600}
 @media (max-width:420px){ #helpBtn{display:none} }
 
-#app{height:100%}
+
+/* Volle Höhe auf dem iPhone: fest am Fenster verankert, Höhe per JS gemessen (--app-h) */
+html,body{background:var(--surface)}
+#app{position:fixed;left:0;right:0;top:0;height:var(--app-h,100dvh);padding-top:env(safe-area-inset-top,0px);box-sizing:border-box;background:var(--bg)}
+.dock{max-height:none}
