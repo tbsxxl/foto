@@ -102,7 +102,12 @@ export const dims = () => FORMATS[state.format];
 export const selLayer = () => state.layers.find(l => l.id === ui.sel) || null;
 
 let toastT;
-export function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 2200); }
+/* Meldung, optional mit Aktion (z. B. „Rückgängig“) */
+export function toast(msg, actLabel, act) {
+  const t = $('#toast'); t.textContent = msg; t.hidden = false;
+  if (actLabel && act) { const b = document.createElement('button'); b.className = 'toast-act'; b.textContent = actLabel; b.onclick = () => { t.hidden = true; act(); }; t.append(b); }
+  clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, actLabel ? 4500 : 2200);
+}
 
 export const stampText = (ms, fmt) => {
   const d = new Date(ms), p = n => String(n).padStart(2, '0'), y = p(d.getFullYear() % 100), m = p(d.getMonth() + 1), dd = p(d.getDate());

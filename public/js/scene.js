@@ -1,8 +1,8 @@
 /* Ebenen, Quellen, Zeichnen der Szene */
 import { clamp, seeded, state, ui, sources, cache, dims, FONTS, stampText } from './core.js';
-import { mk, makeAux, processImage, prepare, cutout } from './process.js';
+import { mk, makeAux, processImage, prepare, cutout, shrink } from './process.js';
 
-export const flags = { fontsTick: 0, histDirty: false, throttle: 0, pending: false };
+export const flags = { fontsTick: 0, histDirty: false, throttle: 0, pending: false, draft: false };
 
 /* ---------- Quellen ---------- */
 export function orientCanvas(base, rot90, flip) {
@@ -208,8 +208,15 @@ export function ensureCache(l) {
   const ok = l.srcId + '|' + l.rot90 + '|' + (l.flip ? 1 : 0);
   if (c.orientKey !== ok) { c.orient = orientCanvas(src.base, l.rot90, l.flip); c.orientKey = ok; c.prepKey = null; c.thumbAux = null; c.thumbs = {}; }
   const prk = JSON.stringify(l.params.persp) + JSON.stringify(l.params.heal);
-  if (c.prepKey !== prk) { c.prep = prepare(c.orient, l.params); c.prepKey = prk; c.aux = null; c.procKey = null; }
+  if (c.prepKey !== prk) { c.prep = prepare(c.orient, l.params); c.prepKey = prk; c.aux = null; c.procKey = null; c.draftAux = null; c.draftKey = null; }
   const pk = JSON.stringify(l.params) + '|' + l.stampMs + '|' + flags.fontsTick;
+  // Beim Ziehen eines Reglers: schnelle Vorschau in kleiner Auflösung, volle Qualität beim Loslassen
+  const selL = flags.draft && state.layers.find(x => x.id === ui.sel);
+  if (selL && cacheKey(selL) === ck && c.procKey !== pk) {
+    if (!c.draftAux) { const p = c.prep, s = Math.min(1, 560 / Math.max(p.width, p.height)); c.draftAux = makeAux(shrink(p, p.width * s, p.height * s)); }
+    if (c.draftKey !== pk) { c.draftProc = processImage(c.draftAux, l.params, l.stampMs); c.draftKey = pk; }
+    return { ...c, proc: c.draftProc };
+  }
   if (c.procKey !== pk && flags.throttle && c.proc && performance.now() - (c.t || 0) < flags.throttle) flags.pending = true;
   else if (c.procKey !== pk) {
     if (!c.aux) c.aux = makeAux(c.prep);

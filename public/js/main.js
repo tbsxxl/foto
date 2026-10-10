@@ -44,7 +44,6 @@ function render() {
   ctx.setLineDash([]); ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.strokeRect(0, 0, T, H);
   if (ui.grid) { ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 1 / s; ctx.beginPath(); for (let i = 0; i < state.slides; i++) for (const f of [1 / 3, 2 / 3]) { ctx.moveTo(i * W + f * W, 0); ctx.lineTo(i * W + f * W, H); } for (const f of [1 / 3, 2 / 3]) { ctx.moveTo(0, f * H); ctx.lineTo(T, f * H); } ctx.stroke(); }
   ctx.fillStyle = COL.muted; ctx.font = `500 ${12 / s}px "JetBrains Mono", monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  for (let i = 0; i < state.slides; i++) ctx.fillText(String(i + 1), (i + .5) * W, H + 8 / s);
   ctx.strokeStyle = COL.accent; ctx.lineWidth = 1 / s;
   for (const g of ui.guides) { ctx.beginPath(); if (g.x != null) { ctx.moveTo(g.x, -20 / s); ctx.lineTo(g.x, H + 20 / s); } else { ctx.moveTo(-20 / s, g.y); ctx.lineTo(T + 20 / s, g.y); } ctx.stroke(); }
   const l = selLayer();
@@ -59,7 +58,47 @@ function render() {
   }
   if (flags.histDirty) { flags.histDirty = false; drawHist(); }
   if (flags.pending) { flags.pending = false; setTimeout(requestRender, 40); }
+  updateChrome();
 }
+/* Bedienelemente auf der Bühne */
+const quick = $('#quick'), slideNav = $('#slideNav'), emptyEl = $('#emptyState');
+let navKey = '';
+function updateChrome() {
+  const l = selLayer(), tool = activeTool();
+  quick.hidden = !l; void tool;
+  if (l) { const lk = quick.querySelector('[data-q=lock]'); lk.classList.toggle('on', !!l.locked); lk.title = lk.ariaLabel = l.locked ? 'Entsperren' : 'Sperren'; }
+  emptyEl.hidden = state.layers.length > 0;
+  const vs = visibleSlide(), key = state.slides + ':' + vs;
+  if (key !== navKey) { navKey = key;
+    slideNav.innerHTML = (state.slides > 1 ? Array.from({ length: state.slides }, (_, i) => `<button data-slide="${i}" aria-label="Slide ${i + 1}" aria-current="${i === vs}">${i + 1}</button>`).join('') : '')
+      + `<button data-slide="all" class="all" aria-label="Alle Slides zeigen" title="Alle zeigen">${sv('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>')}</button>`; }
+}
+quick.addEventListener('click', e => { const b = e.target.closest('[data-q]'), l = selLayer(); if (!b || !l) return; action(b.dataset.q, l); });
+$('#emptyTpl').addEventListener('click', () => { ui.tab.none = 'vorlagen'; selectLayer(null); });
+/* weich zu einer Slide fahren */
+function animateView(to) {
+  const from = { ...view }, t0 = performance.now(), d = 260;
+  const step = now => { const k = Math.min(1, (now - t0) / d), e = 1 - Math.pow(1 - k, 3); view.s = from.s + (to.s - from.s) * e; view.ox = from.ox + (to.ox - from.ox) * e; view.oy = from.oy + (to.oy - from.oy) * e; render(); if (k < 1) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+slideNav.addEventListener('click', e => {
+  const b = e.target.closest('[data-slide]'); if (!b) return; const sw = stage.clientWidth, sh = stage.clientHeight, { W, H } = dims();
+  if (b.dataset.slide === 'all') { const s = Math.min((sh - 70) / H, (sw - 32) / (W * state.slides)); animateView({ s, ox: (sw - W * state.slides * s) / 2, oy: (sh - H * s) / 2 - 14 }); return; }
+  const i = +b.dataset.slide, s = Math.min((sh - 70) / H, (sw - 32) / W); animateView({ s, ox: sw / 2 - (i + .5) * W * s, oy: (sh - H * s) / 2 - 14 });
+});
+/* Werkzeugfeld per Griff größer/kleiner ziehen (Handy) */
+const dock = document.querySelector('.dock'), grab = $('#grab');
+const DOCK_SNAPS = [.3, .46, .7];
+function setDock(f, save) { document.documentElement.style.setProperty('--dock', (f * 100).toFixed(1) + 'dvh'); if (save) try { localStorage.setItem('streifzug.dock', f); } catch {} }
+try { const f = +localStorage.getItem('streifzug.dock'); if (f) setDock(f); } catch {}
+grab.addEventListener('pointerdown', e => {
+  if (matchMedia('(min-width:900px)').matches) return; grab.setPointerCapture(e.pointerId);
+  const y0 = e.clientY, h0 = dock.getBoundingClientRect().height, vh = innerHeight; let f = h0 / vh;
+  const mv = ev => { f = clamp((h0 + y0 - ev.clientY) / vh, .22, .82); setDock(f); };
+  const up = () => { grab.removeEventListener('pointermove', mv); grab.removeEventListener('pointerup', up); grab.removeEventListener('pointercancel', up); const snap = DOCK_SNAPS.reduce((a, b) => Math.abs(b - f) < Math.abs(a - f) ? b : a); setDock(snap, true); };
+  grab.addEventListener('pointermove', mv); grab.addEventListener('pointerup', up); grab.addEventListener('pointercancel', up);
+});
+grab.addEventListener('dblclick', () => { const cur = dock.getBoundingClientRect().height / innerHeight, i = DOCK_SNAPS.findIndex(x => x > cur + .02); setDock(DOCK_SNAPS[i < 0 ? 0 : i], true); });
 
 /* ---------- Koordinaten Bild <-> Welt ---------- */
 function toCanvas(e) { const r = cv.getBoundingClientRect(); const sx = e.clientX - r.left, sy = e.clientY - r.top; return { sx, sy, x: (sx - view.ox) / view.s, y: (sy - view.oy) / view.s }; }
@@ -101,7 +140,7 @@ function drawToolOverlay(l) {
 }
 
 /* ---------- Gesten ---------- */
-const ptrs = new Map(); let gest = null;
+const ptrs = new Map(); let gest = null, lastTap = { id: null, t: 0 };
 function hitTest(p) { for (let i = state.layers.length - 1; i >= 0; i--) { const l = state.layers[i]; if (l.hidden || l.locked) continue; const b = boxOf(l), q = toLocal(l, p); if (Math.abs(q.x) <= b.ow / 2 && Math.abs(q.y) <= b.oh / 2) return l; } return null; }
 function hitHandle(l, p) { if (l.locked) return false; const b = boxOf(l), q = toLocal(l, p), r = 24 / view.s; return Math.hypot(q.x - b.ow / 2, q.y + b.oh / 2) < r; }
 function sizeOf(l) { return l.type === 'text' ? l.size : l.w; }
@@ -211,6 +250,8 @@ function endPtr(e) {
   if (g) {
     if (g.mode === 'pan' && !g.moved && ui.sel && !activeTool()) selectLayer(null);
     else if (g.mode === 'move' && !g.moved && g.l && g.l.type === 'image' && !g.l.srcId) ui.tapPh = g.l.id;
+    else if (g.mode === 'move' && !g.moved && g.l && g.l.type === 'text') { const now = performance.now();
+      if (lastTap.id === g.l.id && now - lastTap.t < 380) { ui.tab.text = 'text'; renderUI(); const ta = $('#txtIn'); if (ta) { ta.focus(); ta.select(); } lastTap.id = null; } else lastTap = { id: g.l.id, t: now }; }
     else if (g.mode === 'brush' || g.mode === 'pinDrag' || g.mode === 'crop' || g.mode === 'none' || g.mode === 'pinchPin' || g.mode === 'pinchCrop') { pushHistory(); syncPanelValues(); }
     else if (g.l && g.moved) { pushHistory(); syncPanelValues(); }
   }
@@ -280,24 +321,39 @@ function updateTop() {
     : state.layers.length ? (l ? (l.locked ? 'Ebene ist gesperrt – entsperren unter „Ebenen“' : 'Ziehen verschiebt · Eck-Griff skaliert und dreht · zwei Finger: Zoom') : 'Antippen zum Bearbeiten · leere Fläche ziehen zum Scrollen') : 'Füge Fotos hinzu – sie dürfen über die Slide-Grenzen ragen.';
 }
 function renderUI() { renderTabs(); renderHead(); renderPanel(); updateTop(); requestRender(); }
+const sv = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const IC = {
+  canvas: sv('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M9 5v14M15 5v14"/>'), tpl: sv('<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="10" width="8" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/>'),
+  layers: sv('<path d="M12 3 3 8l9 5 9-5z"/><path d="m3 13 9 5 9-5"/>'), photo: sv('<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 8"/>'),
+  cam: sv('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'), text: sv('<path d="M5 6V4h14v2M12 4v16M9 20h6"/>'), el: sv('<path d="m12 3 2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.4 6.7 19.4l1.2-6L3.4 9.3l6-.7z"/>'),
+  looks: sv('<circle cx="8" cy="9" r="5"/><circle cx="16" cy="9" r="5"/><circle cx="12" cy="15" r="5"/>'), light: sv('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'),
+  color: sv('<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/>'), fx: sv('<path d="M5 19 19 5M14 5h5v5M7 4v4M5 6h4M17 16v4M15 18h4"/>'), tools: sv('<path d="M15 4l5 5L9 20H4v-5z"/><path d="m13 6 5 5"/>'),
+  crop: sv('<path d="M6 2v16h16"/><path d="M2 6h16v16"/>'), style: sv('<path d="M4 20h4L19 9l-4-4L4 16z"/>'), shape: sv('<rect x="4" y="4" width="16" height="16" rx="3"/>'), slot: sv('<path d="M12 5v14M5 12h14"/>')
+};
+/* Foto-Werkzeuge in Gruppen: obere Reiter, darunter Unterreiter */
+const IMG_GROUPS = [['looks', 'Looks', 'looks', ['looks']], ['licht', 'Licht', 'light', ['anpassen', 'licht', 'kurve']], ['farbe', 'Farbe', 'color', ['farbe', 'grading']],
+  ['effekte', 'Effekte', 'fx', ['effekte', 'details', 'stempel']], ['werkzeuge', 'Werkzeuge', 'tools', ['freistellen', 'selektiv', 'pinsel', 'reparieren', 'fokus']], ['zuschnitt', 'Zuschnitt', 'crop', ['zuschnitt']], ['ebene', 'Ebene', 'layers', ['ebene']]];
+const SUB_LABEL = { anpassen: 'Schnell', licht: 'Licht & Histogramm', kurve: 'Kurve', farbe: 'Farbe & HSL', grading: 'Color Grading', effekte: 'Film & Licht', details: 'Details', stempel: 'Datumsstempel',
+  freistellen: 'Freistellen', selektiv: 'Selektiv', pinsel: 'Pinsel', reparieren: 'Reparieren', fokus: 'Fokus' };
+const groupOf = leaf => IMG_GROUPS.find(g => g[3].includes(leaf)) || IMG_GROUPS[0];
 const TABSETS = {
-  none: [['canvas', 'Leinwand'], ['vorlagen', 'Vorlagen'], ['ebenen', 'Ebenen'], ['addPhoto', '<b>+</b>Foto'], ['addCam', '<b>+</b>Kamera'], ['addText', '<b>+</b>Text'], ['element', '<b>+</b>Element']],
-  image: [['looks', 'Looks'], ['anpassen', 'Anpassen'], ['licht', 'Licht'], ['farbe', 'Farbe'], ['grading', 'Color Grading'], ['kurve', 'Kurve'], ['details', 'Details'], ['effekte', 'Effekte'], ['stempel', 'Stempel'],
-    ['freistellen', 'Freistellen'], ['selektiv', 'Selektiv'], ['pinsel', 'Pinsel'], ['reparieren', 'Reparieren'], ['fokus', 'Fokus'], ['zuschnitt', 'Zuschnitt'], ['ebene', 'Ebene']],
-  text: [['text', 'Text'], ['stil', 'Stil'], ['ebene', 'Ebene']],
-  shape: [['form', 'Form'], ['ebene', 'Ebene']],
-  slot: [['slot', 'Leeres Feld']]
+  none: [['canvas', 'Leinwand', 'canvas'], ['vorlagen', 'Vorlagen', 'tpl'], ['ebenen', 'Ebenen', 'layers'], ['addPhoto', 'Foto', 'photo'], ['addCam', 'Kamera', 'cam'], ['addText', 'Text', 'text'], ['element', 'Element', 'el']],
+  image: IMG_GROUPS.map(([k, lb, ic]) => [k, lb, ic]),
+  text: [['text', 'Text', 'text'], ['stil', 'Stil', 'style'], ['ebene', 'Ebene', 'layers']],
+  shape: [['form', 'Form', 'shape'], ['ebene', 'Ebene', 'layers']],
+  slot: [['slot', 'Leeres Feld', 'slot']]
 };
 function renderTabs() {
-  const m = mode();
-  tabs.innerHTML = TABSETS[m].map(([k, lab]) => k === 'addPhoto' ? `<label class="tab add" for="fileIn" role="button" tabindex="0">${lab}</label>`
-    : k === 'addCam' ? `<label class="tab add" for="camIn" role="button" tabindex="0">${lab}</label>`
-    : `<button class="tab${k.startsWith('add') || k === 'element' ? ' add' : ''}" role="tab" data-tab="${k}" aria-selected="${ui.tab[m] === k}">${lab}</button>`).join('');
+  const m = mode(), cur = m === 'image' ? groupOf(ui.tab.image)[0] : ui.tab[m];
+  tabs.innerHTML = TABSETS[m].map(([k, lab, ic]) => { const inner = `${IC[ic] || ''}<span>${lab}</span>`, add = /^add|^element$/.test(k) ? ' add' : '';
+    return k === 'addPhoto' ? `<label class="tab add" for="fileIn" role="button" tabindex="0">${inner}</label>` : k === 'addCam' ? `<label class="tab add" for="camIn" role="button" tabindex="0">${inner}</label>`
+      : `<button class="tab${add}" role="tab" data-tab="${k}" aria-selected="${cur === k}">${inner}</button>`; }).join('');
   const on = tabs.querySelector('[aria-selected="true"]'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 tabs.addEventListener('click', e => {
-  const b = e.target.closest('[data-tab]'); if (!b) return; const k = b.dataset.tab;
+  const b = e.target.closest('[data-tab]'); if (!b) return; let k = b.dataset.tab;
   if (k === 'addText') { const { W, H } = dims(); const l = newTextLayer((visibleSlide() + .5) * W, H * .5); state.layers.push(l); ui.tab.text = 'text'; selectLayer(l.id); pushHistory(); setTimeout(() => $('#txtIn')?.select(), 50); return; }
+  if (mode() === 'image') { const g = IMG_GROUPS.find(x => x[0] === k); ui.sub = ui.sub || {}; k = ui.sub[k] || g[3][0]; }
   ui.tab[mode()] = k; ui.pick = false; renderTabs(); renderHead(); renderPanel(); updateTop(); requestRender();
 });
 tabs.addEventListener('keydown', e => { const lb = e.target.closest('label[for]'); if ((e.key === 'Enter' || e.key === ' ') && lb) { e.preventDefault(); $('#' + lb.htmlFor).click(); } });
@@ -350,7 +406,7 @@ function getVal(k) { const [ns, f] = k.split('.'); if (k === 'l.wpct') return Ma
 function setVal(k, v) { const [ns, f] = k.split('.'); if (k === 'l.wpct') { selLayer().w = v / 100 * dims().W; return; } const t = target(ns); if (t) t[f] = v; }
 function slider(key, label, min, max, step, fmt = 'signed', def = 0, scale = 1, cls = '') {
   const raw = getVal(key) ?? def, val = +(raw * scale).toFixed(4), id = 's_' + key.replace(/\W/g, '_');
-  return `<div class="sl${val !== def ? ' changed' : ''}${cls ? ' ' + cls : ''}"><div class="sl-top"><label for="${id}">${label}</label><output>${FMT[fmt](val)}</output></div>
+  return `<div class="sl${val !== def ? ' changed' : ''}${cls ? ' ' + cls : ''}"><div class="sl-top"><label for="${id}">${label}</label><button class="sl-reset" data-reset aria-label="${label} zurücksetzen" title="Zurücksetzen">↺</button><output>${FMT[fmt](val)}</output></div>
     <input type="range" id="${id}" data-k="${key}" data-fmt="${fmt}" data-def="${def}" data-scale="${scale}" min="${min}" max="${max}" step="${step}" value="${val}"></div>`;
 }
 function paintFill(inp) {
@@ -361,7 +417,7 @@ function paintFill(inp) {
 panel.addEventListener('input', e => {
   const t = e.target, l = selLayer();
   if (t.matches('input[type=range][data-k]')) {
-    const v = +t.value; setVal(t.dataset.k, v / +t.dataset.scale); t.closest('.sl').querySelector('output').textContent = FMT[t.dataset.fmt](v);
+    const v = +t.value; if (/^(p|h|g|gr|m|b|pv)\./.test(t.dataset.k)) flags.draft = true; setVal(t.dataset.k, v / +t.dataset.scale); t.closest('.sl').querySelector('output').textContent = FMT[t.dataset.fmt](v);
     t.closest('.sl').classList.toggle('changed', v !== +t.dataset.def); paintFill(t);
     if (t.dataset.k.startsWith('h.')) markBands(); if (t.dataset.k.startsWith('g.')) markGrade();
     if (t.dataset.k.startsWith('tp.')) layout(false);
@@ -376,7 +432,7 @@ panel.addEventListener('change', e => {
   if (t.id === 'projName') { ui.projectName = t.value.trim() || 'Mein Karussell'; scheduleSave(); return; }
   if (t.id === 'stampDate') { const [y, m, d] = t.value.split('-').map(Number); if (y) { const old = new Date(l.stampMs); l.stampMs = new Date(y, m - 1, d, old.getHours(), old.getMinutes()).getTime(); commit(); } return; }
   if (t.id === 'presetFile') { importPresets(t.files[0]); t.value = ''; return; }
-  if (t.matches('input[type=range],textarea,input[type=color],#capIn')) { pushHistory(); refreshAfterCommit(); }
+  if (t.matches('input[type=range],textarea,input[type=color],#capIn')) { if (flags.draft) { flags.draft = false; requestRender(); } pushHistory(); refreshAfterCommit(); }
 });
 panel.addEventListener('dblclick', e => {
   const top = e.target.closest('.sl-top'); if (!top) return; const inp = top.parentElement.querySelector('input');
@@ -406,7 +462,7 @@ function renderPanel() {
   else if (m === 'text') h = t === 'stil' ? panelTextStyle(l) : t === 'ebene' ? panelLayerCommon(l) : panelText(l);
   else if (m === 'shape') h = t === 'ebene' ? panelLayerCommon(l) : panelShape(l);
   else if (m === 'slot') h = panelSlot(l);
-  else h = (IMAGE_PANELS[t] || IMAGE_PANELS.looks)(l, l.params);
+  else { const g = groupOf(t); h = (g[3].length > 1 ? `<div class="seg" role="tablist">${g[3].map(k => `<button data-sub="${k}" aria-selected="${k === t}">${SUB_LABEL[k]}</button>`).join('')}</div>` : '') + (IMAGE_PANELS[t] || IMAGE_PANELS.looks)(l, l.params); }
   const keep = panel.dataset.key === m + t ? panel.scrollTop : 0;
   panel.innerHTML = h; panel.dataset.key = m + t; panel.scrollTop = keep;
   panel.querySelectorAll('input[type=range]').forEach(paintFill);
@@ -627,6 +683,8 @@ function panelShape(l) {
 }
 
 panel.addEventListener('click', async e => {
+  const sub = e.target.closest('[data-sub]'); if (sub) { const k = sub.dataset.sub; ui.sub = ui.sub || {}; ui.sub[groupOf(k)[0]] = k; ui.tab.image = k; ui.pick = false; renderPanel(); updateTop(); requestRender(); return; }
+  const rs = e.target.closest('[data-reset]'); if (rs) { const inp = rs.closest('.sl').querySelector('input'); inp.value = inp.dataset.def; inp.dispatchEvent(new Event('input', { bubbles: true })); flags.draft = false; pushHistory(); refreshAfterCommit(); requestRender(); return; }
   const fs = e.target.closest('[data-fillslot]'); if (fs) { ui.fillSlot = +fs.dataset.fillslot; return; }
   const t = e.target.closest('button'); if (!t || t.disabled) return; const l = selLayer(); const d = t.dataset;
   if (d.format) { const oh = dims().H; state.format = d.format; const nh = dims().H; state.layers.forEach(x => x.y *= nh / oh); fit(); commit(); }
@@ -641,7 +699,7 @@ panel.addEventListener('click', async e => {
     commit();
   }
   else if (d.tpl) { const T = tplDef(d.tpl), v = state.tpl && state.tpl.kind === d.tpl ? (state.tpl.v + 1) % T.vars.length : 0; const n0 = state.slides;
-    applyTemplate(d.tpl, v); ui.sel = null; fit(); panel.dataset.key = ''; commit(); toast(`${T.name} · ${T.vars[v]}${state.slides !== n0 ? ` · ${state.slides} Slides` : ''}${layout.hiddenCount ? ` · ${layout.hiddenCount} Foto${layout.hiddenCount === 1 ? '' : 's'} ausgeblendet` : ''}`); }
+    applyTemplate(d.tpl, v); ui.sel = null; fit(); panel.dataset.key = ''; commit(); toast(`${T.name} · ${T.vars[v]}${state.slides !== n0 ? ` · ${state.slides} Slides` : ''}${layout.hiddenCount ? ` · ${layout.hiddenCount} Foto${layout.hiddenCount === 1 ? '' : 's'} ausgeblendet` : ''}`, 'Rückgängig', undo); }
   else if (d.tplvar) { applyTemplate(state.tpl.kind, +d.tplvar); fit(); commit(); }
   else if (d.tplcat) { ui.tplCat = d.tplcat; renderPanel(); }
   else if (d.tplshadow) { state.tpl.shadow = d.tplshadow === 'tpl' ? null : d.tplshadow === 'on'; layout(false); commit(); }
@@ -722,7 +780,7 @@ function action(a, l) {
     case 'front': { const i = state.layers.indexOf(l); if (i < state.layers.length - 1) { state.layers.splice(i, 1); state.layers.splice(i + 1, 0, l); } commit(); toast('Eine Ebene nach vorn'); return; }
     case 'back': { const i = state.layers.indexOf(l); if (i > 0) { state.layers.splice(i, 1); state.layers.splice(i - 1, 0, l); } commit(); toast('Eine Ebene nach hinten'); return; }
     case 'dup': { const c = unlinked(clone(l)); c.id = newId(); c.x += 60; c.y += 60; c.locked = false; state.layers.splice(state.layers.indexOf(l) + 1, 0, c); ui.sel = c.id; commit(); return; }
-    case 'del': state.layers = state.layers.filter(x => x !== l); if (!state.layers.some(x => cacheKey(x) === cacheKey(l))) cache.delete(cacheKey(l)); ui.sel = null; commit(); toast('Gelöscht – oben links rückgängig machen'); return;
+    case 'del': state.layers = state.layers.filter(x => x !== l); if (!state.layers.some(x => cacheKey(x) === cacheKey(l))) cache.delete(cacheKey(l)); ui.sel = null; commit(); toast('Gelöscht', 'Rückgängig', undo); return;
     case 'copy': ui.clip = clone(l.params); toast('Bearbeitung kopiert'); renderPanel(); return;
     case 'paste': if (ui.clip) { const keep = { heal: P.heal, brush: P.brush, masks: P.masks }; l.params = upgradeParams(clone(ui.clip)); Object.assign(l.params, keep); commit(); toast('Bearbeitung eingefügt'); } return;
     case 'applyAll': state.layers.filter(x => x.type === 'image' && x !== l).forEach(x => { const keep = { heal: x.params.heal, brush: x.params.brush, masks: x.params.masks }; x.params = clone(l.params); Object.assign(x.params, keep); }); commit(); toast('Auf alle Fotos übertragen'); return;
@@ -805,8 +863,8 @@ function setupCurve() {
   let idx = -1;
   const pos = e => { const r = cnv.getBoundingClientRect(), pad = 14; return { x: clamp((e.clientX - r.left - pad) / (r.width - 2 * pad)), y: clamp(1 - (e.clientY - r.top - pad) / (r.height - 2 * pad)) }; };
   cnv.onpointerdown = e => { cnv.setPointerCapture(e.pointerId); const p = pos(e); idx = Math.round(p.x * 4); l.params.curves[ui.curveCh][idx] = +p.y.toFixed(3); draw(); requestRender(); };
-  cnv.onpointermove = e => { if (idx < 0) return; const p = pos(e); l.params.curves[ui.curveCh][idx] = +p.y.toFixed(3); draw(); requestRender(); };
-  cnv.onpointerup = cnv.onpointercancel = () => { if (idx >= 0) { idx = -1; pushHistory(); } };
+  cnv.onpointermove = e => { if (idx < 0) return; flags.draft = true; const p = pos(e); l.params.curves[ui.curveCh][idx] = +p.y.toFixed(3); draw(); requestRender(); };
+  cnv.onpointerup = cnv.onpointercancel = () => { if (idx >= 0) { idx = -1; flags.draft = false; pushHistory(); requestRender(); } };
 }
 
 /* ---------- Fotos laden ---------- */
@@ -923,6 +981,7 @@ async function webSave(items) {
   for (const b of items) { const a = document.createElement('a'), url = URL.createObjectURL(b.blob); a.href = url; a.download = b.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000); await pause(250); }
   return true;
 }
+const setBar = f => { $('#expBar').style.width = Math.round(f * 100) + '%'; };
 async function doExport() {
   if (!state.layers.some(l => l.type !== 'image' || l.srcId)) { toast('Füge zuerst ein Foto hinzu.'); return; }
   selectLayer(null);
@@ -936,7 +995,7 @@ async function doExport() {
   const mime = expOpt.type === 'png' ? 'image/png' : 'image/jpeg', ext = expOpt.type === 'png' ? 'png' : 'jpg';
   try {
     for (let k = 0; k < imgs.length; k++) {
-      const { l, need } = imgs[k], src = sources.get(l.srcId); prog.textContent = `Foto ${k + 1} von ${imgs.length} wird in voller Auflösung entwickelt …`; await pause(30);
+      const { l, need } = imgs[k], src = sources.get(l.srcId); prog.textContent = `Foto ${k + 1} von ${imgs.length} wird in voller Auflösung entwickelt …`; setBar(k / (imgs.length + state.slides)); await pause(30);
       const base = await loadScaled(src, Math.min(4320, Math.ceil(need))), o = orientCanvas(base, l.rot90, l.flip), pr = prepare(o, l.params);
       procs.set(cacheKey(l), processImage(makeAux(pr), l.params, l.stampMs));
     }
@@ -945,7 +1004,7 @@ async function doExport() {
       grid.insertAdjacentHTML('beforeend', `<div class="exp-item${label === 'Panorama' ? ' wide' : ''}"><img src="${url}" alt="${label}"><div class="row"><span class="num">${label} · ${c.width}×${c.height}</span><button class="btn ghost small" data-save="${i}">Sichern</button></div></div>`);
     };
     for (let i = 0; i < state.slides; i++) {
-      prog.textContent = `Slide ${i + 1} von ${state.slides} wird gerendert …`; await pause(20);
+      prog.textContent = `Slide ${i + 1} von ${state.slides} wird gerendert …`; setBar((imgs.length + i) / (imgs.length + state.slides)); await pause(20);
       const c = mk(W, H), x = c.getContext('2d'); x.translate(-i * W, 0); drawScene(x, { procs });
       await push(c, `streifzug-${String(i + 1).padStart(2, '0')}.${ext}`, `${i + 1} / ${state.slides}`);
     }
@@ -954,7 +1013,7 @@ async function doExport() {
       await push(c, `streifzug-panorama.${ext}`, 'Panorama');
     }
   } catch (err) { console.error(err); prog.textContent = 'Der Export ist fehlgeschlagen. Vermutlich war ein Foto zu groß für den Speicher – versuche es mit weniger Fotos auf einmal.'; return; }
-  prog.textContent = `${state.slides} ${state.slides === 1 ? 'Slide' : 'Slides'} fertig · ${expOpt.type.toUpperCase()}, ${W}×${H} px`;
+  setBar(1); prog.textContent = `${state.slides} ${state.slides === 1 ? 'Slide' : 'Slides'} fertig · ${expOpt.type.toUpperCase()}, ${W}×${H} px`;
   $('#saveAll').hidden = exportBlobs.length < 2;
   note.innerHTML = coarse() ? '<b>So geht’s weiter:</b> „Alle sichern“ öffnet das Teilen-Menü – dort „Bilder sichern“ wählen. In Instagram dann die Slides in der Reihenfolge 1, 2, 3 … auswählen.'
     : '<b>So geht’s weiter:</b> „Sichern“ lädt die Slides herunter. In Instagram dann alle Slides in der Reihenfolge 1, 2, 3 … auswählen.';
@@ -996,5 +1055,5 @@ if (document.fonts) {
   Promise.all(FONTS.map(f => document.fonts.load(`${f[2]} 40px "${f[0]}"`))).catch(() => {}).then(() => { flags.fontsTick++; requestRender(); });
 }
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
-window.__streifzug = { state, ui, view, sources, cache, action, applyTemplate, layout, fit, selectLayer, commit, render, addFiles, saveNow, openProject,
+window.__streifzug = { openTab: k => { ui.tab[mode() === 'image' ? 'image' : mode()] = k; renderUI(); }, state, ui, view, sources, cache, action, applyTemplate, layout, fit, selectLayer, commit, render, addFiles, saveNow, openProject,
   snapshot: (h = 360) => { const { W, H } = dims(), T = W * state.slides, c = mk(T * h / H, h), x = c.getContext('2d'); x.scale(h / H, h / H); drawScene(x, { clean: true }); return c.toDataURL('image/jpeg', .85); } };

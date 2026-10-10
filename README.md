@@ -11,6 +11,13 @@ Foto-Web-App fürs iPhone (und jeden Browser), die vier Apps in einer vereint �
 
 Außerdem: Projekte werden automatisch im Browser gespeichert (IndexedDB), die App lässt sich über „Teilen → Zum Home-Bildschirm“ wie eine echte App installieren und funktioniert danach auch offline. Export als JPEG oder PNG (1080 px breit), optional zusätzlich als Panorama; auf dem iPhone landen alle Slides mit einem Tipp in den Fotos.
 
+## Bedienung in Kürze
+
+- Unten wählst du die Werkzeug-Gruppe, darüber die Unterreiter (z. B. Licht → Schnell / Licht & Histogramm / Kurve).
+- Das Werkzeugfeld lässt sich am Griff größer und kleiner ziehen.
+- Über der Leinwand: Slide-Navigation (Antippen springt zur Slide) und Schnellaktionen fürs gewählte Element.
+- Veränderte Regler zeigen ein ↺ zum Zurücksetzen; Text doppelt antippen zum Bearbeiten.
+
 ## Aufbau
 
 Kein Build-Schritt – reine ES-Module in `public/`:
