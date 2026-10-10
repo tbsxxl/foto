@@ -176,11 +176,12 @@ function snapMove(l, nx, ny) {
   const { W, H } = dims(), T = W * state.slides, b = boxOf(l), th = 10 / view.s, guides = [];
   const xs = [T / 2]; for (let i = 0; i <= state.slides; i++) xs.push(i * W); for (let i = 0; i < state.slides; i++) xs.push((i + .5) * W);
   const straight = Math.abs(((l.rot % 360) + 360) % 360) < .01;
-  for (const o of state.layers) if (o !== l && !o.hidden && Math.abs(((o.rot % 360) + 360) % 360) < .01) { const ob = boxOf(o); xs.push(o.x - ob.ow / 2, o.x + ob.ow / 2); }
+  const ys0 = [];
+  for (const o of state.layers) if (o !== l && !o.hidden) { const ob = boxOf(o); xs.push(o.x); ys0.push(o.y); if (Math.abs(((o.rot % 360) + 360) % 360) < .01) { xs.push(o.x - ob.ow / 2, o.x + ob.ow / 2); ys0.push(o.y - ob.oh / 2, o.y + ob.oh / 2); } }
   const cand = straight ? [[0, nx], [-b.ow / 2, nx - b.ow / 2], [b.ow / 2, nx + b.ow / 2]] : [[0, nx]];
   let best = null; for (const [off, v] of cand) for (const t of xs) { const d = Math.abs(v - t); if (d < th && (!best || d < best.d)) best = { d, x: t - off, g: t }; }
   if (best) { nx = best.x; guides.push({ x: best.g }); }
-  const ys = [H / 2, 0, H]; const cy = straight ? [[0, ny], [-b.oh / 2, ny - b.oh / 2], [b.oh / 2, ny + b.oh / 2]] : [[0, ny]];
+  const ys = [H / 2, 0, H, ...ys0]; const cy = straight ? [[0, ny], [-b.oh / 2, ny - b.oh / 2], [b.oh / 2, ny + b.oh / 2]] : [[0, ny]];
   let by = null; for (const [off, v] of cy) for (const t of ys) { const d = Math.abs(v - t); if (d < th && (!by || d < by.d)) by = { d, y: t - off, g: t }; }
   if (by) { ny = by.y; guides.push({ y: by.g }); }
   ui.guides = guides; return [nx, ny];
@@ -223,8 +224,10 @@ function startTool(tool, l, p) {
   if (tool === 'crop') { if (!ip.inside) return null; return { mode: 'crop', l, q0: toLocal(l, p), px0: l.crop.px, py0: l.crop.py, G, moved: false }; }
   return null;
 }
+let multiTap = null;
 cv.addEventListener('pointerdown', e => {
   cv.setPointerCapture(e.pointerId); const p = toCanvas(e); ptrs.set(e.pointerId, p);
+  if (e.pointerType === 'touch') { if (ptrs.size === 1) multiTap = { n: 1, t: performance.now(), x: p.sx, y: p.sy, moved: false }; else if (multiTap) multiTap.n = Math.max(multiTap.n, ptrs.size); }
   if (ptrs.size === 1) {
     const l = selLayer(), tool = activeTool();
     if (tool) { const g = startTool(tool, l, p); if (g) { gest = g; requestRender(); return; } }
@@ -249,6 +252,7 @@ cv.addEventListener('pointermove', e => {
   const p = toCanvas(e);
   if (!ptrs.has(e.pointerId) || !gest) { if (/^(brush|cut)$/.test(activeTool() || '') && e.pointerType === 'mouse') { const ip = imgPt(selLayer(), p); if (ip) { ui.cursor = { u: ip.u, v: ip.v }; requestRender(); } } return; }
   const prev = ptrs.get(e.pointerId); ptrs.set(e.pointerId, p);
+  if (multiTap && Math.hypot(p.sx - prev.sx, p.sy - prev.sy) > 0 && (multiTap.d = (multiTap.d || 0) + Math.hypot(p.sx - prev.sx, p.sy - prev.sy)) > 14) multiTap.moved = true;
   if (Math.abs(p.sx - prev.sx) + Math.abs(p.sy - prev.sy) > 0) gest.moved = gest.moved || Math.hypot(p.sx - (gest.sx ?? prev.sx), p.sy - (gest.sy ?? prev.sy)) > (gest.mode === 'aiTap' ? 8 : 3) || (gest.mode !== 'pan' && gest.mode !== 'aiTap');
   const m = gest.mode;
   if (m === 'move') { if (gest.l.locked) return; const [nx, ny] = snapMove(gest.l, p.x - gest.dx, p.y - gest.dy); gest.l.x = nx; gest.l.y = ny;
@@ -274,6 +278,7 @@ cv.addEventListener('pointermove', e => {
 });
 function endPtr(e) {
   if (!ptrs.has(e.pointerId)) return; ptrs.delete(e.pointerId);
+  if (!ptrs.size && multiTap) { const mt = multiTap; multiTap = null; if (mt.n >= 2 && !mt.moved && performance.now() - mt.t < 350 && e.type === 'pointerup') { gest = null; ui.guides = []; if (mt.n === 2) { undo(); toast('Rückgängig'); } else { redo(); toast('Wiederholt'); } return; } }
   if (ptrs.size > 0) { if (gest && /^pinch(Layer|Crop|Pin)$/.test(gest.mode)) gest = { mode: 'none', l: gest.l, moved: true }; return; }
   const g = gest; gest = null; ui.guides = []; flags.throttle = 0; if (!g || !g.target) ui.dropId = null;
   if (g) {
@@ -397,7 +402,7 @@ const SUB_LABEL = { anpassen: 'Schnell', licht: 'Licht & Histogramm', kurve: 'Ku
   freistellen: 'Freistellen', selektiv: 'Selektiv', pinsel: 'Pinsel', reparieren: 'Reparieren', fokus: 'Fokus' };
 const groupOf = leaf => IMG_GROUPS.find(g => g[3].includes(leaf)) || IMG_GROUPS[0];
 const TABSETS = {
-  none: [['canvas', 'Leinwand', 'canvas'], ['vorlagen', 'Vorlagen', 'tpl'], ['ebenen', 'Ebenen', 'layers'], ['addPhoto', 'Foto', 'photo'], ['addCam', 'Kamera', 'cam'], ['addText', 'Text', 'text'], ['element', 'Element', 'el']],
+  none: [['canvas', 'Leinwand', 'canvas'], ['vorlagen', 'Vorlagen', 'tpl'], ['ebenen', 'Ebenen', 'layers'], ['addPhoto', 'Foto', 'photo'], ['addText', 'Text', 'text'], ['element', 'Element', 'el']],
   image: IMG_GROUPS.map(([k, lb, ic]) => [k, lb, ic]),
   text: [['text', 'Text', 'text'], ['stil', 'Stil', 'style'], ['ebene', 'Ebene', 'layers']],
   shape: [['form', 'Form', 'shape'], ['ebene', 'Ebene', 'layers']],
@@ -409,7 +414,10 @@ function renderTabs() {
     return k === 'addPhoto' ? `<label class="tab add" for="fileIn" role="button" tabindex="0">${inner}</label>` : k === 'addCam' ? `<label class="tab add" for="camIn" role="button" tabindex="0">${inner}</label>`
       : `<button class="tab${add}" role="tab" data-tab="${k}" aria-selected="${cur === k}">${inner}</button>`; }).join('');
   const on = tabs.querySelector('[aria-selected="true"]'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  tabFade();
 }
+function tabFade() { tabs.classList.toggle('more', tabs.scrollWidth - tabs.clientWidth - tabs.scrollLeft > 8); }
+tabs.addEventListener('scroll', tabFade, { passive: true }); addEventListener('resize', tabFade);
 tabs.addEventListener('click', e => {
   const b = e.target.closest('[data-tab]'); if (!b) return; let k = b.dataset.tab;
   if (k === 'addText') { const { W, H } = dims(); const l = newTextLayer((visibleSlide() + .5) * W, H * .5); state.layers.push(l); ui.tab.text = 'text'; selectLayer(l.id); pushHistory(); setTimeout(() => $('#txtIn')?.select(), 50); return; }
@@ -516,11 +524,23 @@ function applyColor(target, v) {
 }
 const chip = (attrs, label, on) => `<button class="chip" ${attrs} aria-pressed="${!!on}">${label}</button>`;
 const sw = (target, c, on) => `<button class="sw" style="--c:${c}" data-col-set="${target}" data-v="${c}" aria-pressed="${!!on}" aria-label="Farbe ${c}"></button>`;
-const swatches = (target, list, cur) => `<div class="swatches">${LS.get('recentColors', []).filter(c => !list.includes(c)).slice(0, 4).map(c => sw(target, c, cur === c).replace('class="sw"', 'class="sw recent"')).join('')}${list.map(c => sw(target, c, cur === c)).join('')}<input type="color" class="color-in" data-col="${target}" value="${/^#[0-9a-f]{6}$/i.test(cur) ? cur : '#ffffff'}" aria-label="Eigene Farbe"></div>`;
+const swatches = (target, list, cur) => `<div class="swatches">${(() => { const pal = photoPalette().filter(c => !list.includes(c)); return pal.length ? pal.map(c => sw(target, c, cur === c)).join('') + '<span class="sw-label">↑ aus deinen Fotos</span>' : ''; })()}${LS.get('recentColors', []).filter(c => !list.includes(c)).slice(0, 4).map(c => sw(target, c, cur === c).replace('class="sw"', 'class="sw recent"')).join('')}${list.map(c => sw(target, c, cur === c)).join('')}<input type="color" class="color-in" data-col="${target}" value="${/^#[0-9a-f]{6}$/i.test(cur) ? cur : '#ffffff'}" aria-label="Eigene Farbe"></div>`;
 const toggle = (key, label, on) => `<div class="toggle"><span>${label}</span><button class="switch" role="switch" data-tog="${key}" aria-checked="${!!on}" aria-label="${label.replace(/<[^>]+>/g, '')}"></button></div>`;
 const group = (title, inner) => `<div class="group">${title ? `<span class="sec-label">${title}</span>` : ''}${inner}</div>`;
 const btn = (act, label, cls = 'ghost', extra = '') => `<button class="btn ${cls} small" data-act2="${act}" ${extra}>${label}</button>`;
 
+/* Farbpalette aus den Fotos des Projekts (gecacht) */
+let palKey = '', palVal = [];
+function photoPalette() {
+  const ids = [...new Set(state.layers.filter(l => l.type === 'image' && l.srcId && sources.get(l.srcId)?.base).map(l => l.srcId))].slice(0, 8), key = ids.join(',');
+  if (key === palKey) return palVal; palKey = key; if (!ids.length) return palVal = [];
+  const buckets = new Map();
+  for (const id of ids) { const c = shrink(sources.get(id).base, 28, 28), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    for (let i = 0; i < d.length; i += 4) { const k = (d[i] >> 5) << 6 | (d[i + 1] >> 5) << 3 | (d[i + 2] >> 5), b = buckets.get(k) || { n: 0, r: 0, g: 0, b: 0 }; b.n++; b.r += d[i]; b.g += d[i + 1]; b.b += d[i + 2]; buckets.set(k, b); } }
+  const cand = [...buckets.values()].map(b => { const r = b.r / b.n, g = b.g / b.n, bl = b.b / b.n, mx = Math.max(r, g, bl), mn = Math.min(r, g, bl); return { r, g, b: bl, score: b.n * (.35 + (mx - mn) / 255) }; }).sort((a, b) => b.score - a.score), out = [];
+  for (const c of cand) { if (out.every(o => Math.hypot(o.r - c.r, o.g - c.g, o.b - c.b) > 60)) out.push(c); if (out.length >= 5) break; }
+  return palVal = out.map(c => '#' + [c.r, c.g, c.b].map(v => Math.round(v).toString(16).padStart(2, '0')).join(''));
+}
 /* Kleine Merkliste im Browser (Favoriten, zuletzt benutzt, eigene Farben) */
 const LS = { get(k, d) { try { return JSON.parse(localStorage.getItem('streifzug.' + k)) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem('streifzug.' + k, JSON.stringify(v)); } catch {} } };
 const pushList = (k, v, max = 10) => LS.set(k, [v, ...LS.get(k, []).filter(x => x !== v)].slice(0, max));
@@ -643,10 +663,13 @@ function shapeIcon(k) {
     corners: `<path d="M6 16V6h10M34 24v10H24" fill="none" stroke="var(--fg)" stroke-width="2.5"/>`,
     scribbleArrow: `<path d="M5 12q6 20 17 14t13-14M30 10h5v6" fill="none" stroke="var(--fg)" stroke-width="2.5"/>` }[k] || '';
 }
-const TEXT_PRESETS = [['ort', '📍 Ort'], ['perlen', 'Perlen'], ['erpresser', 'Ausschnitte'], ['schreibschrift', 'Schreibschrift'], ['klassisch', 'Klassisch'], ['etikett', 'Etikett'], ['neon', 'Neon'], ['zeitung', 'Zeitung'], ['plakat', 'Plakat'], ['pixel', 'Pixel'], ['notiz', 'Notiz'], ['kontur', 'Kontur']];
+const TEXT_PRESETS = [['seite', 'Seitenzahl 1/5'], ['wischen', 'Wischen →'], ['handle', '@Name'], ['ort', '📍 Ort'], ['perlen', 'Perlen'], ['erpresser', 'Ausschnitte'], ['schreibschrift', 'Schreibschrift'], ['klassisch', 'Klassisch'], ['etikett', 'Etikett'], ['neon', 'Neon'], ['zeitung', 'Zeitung'], ['plakat', 'Plakat'], ['pixel', 'Pixel'], ['notiz', 'Notiz'], ['kontur', 'Kontur']];
 function textPreset(l, k) {
   const base = { bg: 'none', shadow: true, glow: false, stroke: 0, spacing: 0, upper: false, lineH: 1.16 };
   const P = {
+    seite: { text: '{n}/{N}', font: 'Space Mono', color: '#ffffff', bg: 'soft', bgColor: '#111111', size: 34, shadow: false },
+    wischen: { text: 'WISCHEN →', font: 'Space Mono', color: '#ffffff', spacing: 18, size: 30, shadow: true },
+    handle: { text: '@deinname', font: 'Instrument Sans', color: '#ffffff', size: 36, shadow: true },
     ort: { font: 'Instrument Sans', color: '#1d1d1d', bg: 'pin', bgColor: '#ffffff', size: 40, shadow: false },
     perlen: { font: 'Archivo Black', color: '#1d1d1d', bg: 'beads', bgColor: '#e4e1da', upper: true, size: 90, shadow: false },
     erpresser: { font: 'Anton', color: '#1d1d1d', bg: 'ransom', size: 120, shadow: false },
@@ -768,17 +791,18 @@ const layerOrderRow = l => `<div class="row">${btn('front', 'Nach vorn')}${btn('
 function panelLayerCommon(l) {
   return group('', (l.type === 'text' ? '' : slider('l.rot', 'Drehung', -180, 180, .5, 'deg')) + slider('l.opacity', 'Deckkraft', 0, 100, 1, 'pct', 100, 100))
     + group('Mischmodus', `<div class="chips scroll">${BLENDS.map(([k, lb]) => chip(`data-blend="${k}"`, lb, (l.blend || 'source-over') === k)).join('')}</div>`)
-    + alignRow() + layerOrderRow(l);
+    + alignRow() + `<div class="row">${btn('toAll', 'Auf jede Slide kopieren')}</div>` + layerOrderRow(l);
 }
 function panelText(l) {
   return `<textarea class="txt" id="txtIn" aria-label="Text" rows="2">${esc(l.text)}</textarea>
+  <span class="note">Platzhalter: <b>{n}</b> Slide-Nummer · <b>{N}</b> Anzahl Slides · <b>{datum}</b> heute</span>
+  ${swatches('text', TEXT_COLORS, l.color)}
   <div class="chips scroll">${FONTS.map(([f, lb, wgt]) => `<button class="fontchip" data-font="${f}" aria-pressed="${l.font === f}"><span class="aa" style="font-family:'${f}';font-weight:${wgt}">Aa</span><span>${lb}</span></button>`).join('')}</div>
   ${group('Schnell-Stile', `<div class="chips">${TEXT_PRESETS.map(([k, lb]) => chip(`data-tpreset="${k}"`, lb, false)).join('')}</div>`)}`;
 }
 const PIN_COLORS = ['#8a4bd8', '#e5484d', '#ff7eb6', '#ff9a2e', '#f2c14e', '#3fa36b', '#3f7fe0', '#111111', '#ffffff'];
 function panelTextStyle(l) {
-  return group('', slider('l.size', 'Größe', 16, 400, 1, 'px', 110) + slider('l.rot', 'Drehung', -180, 180, .5, 'deg') + slider('l.spacing', 'Laufweite', -10, 60, 1, 'n') + slider('l.lineH', 'Zeilenabstand', .8, 2, .02, 'lh', 1.16) + slider('l.curve', 'Bogen', -100, 100, 1, 'signed', 0) + (l.curve && l.bg !== 'none' ? '<span class="note">Bogentext gibt es nur ohne Hinterlegung.</span>' : ''))
-  + group('Farbe', swatches('text', TEXT_COLORS, l.color))
+  return group('Farbe', swatches('text', TEXT_COLORS, l.color)) + group('', slider('l.size', 'Größe', 16, 400, 1, 'px', 110) + slider('l.rot', 'Drehung', -180, 180, .5, 'deg') + slider('l.spacing', 'Laufweite', -10, 60, 1, 'n') + slider('l.lineH', 'Zeilenabstand', .8, 2, .02, 'lh', 1.16) + slider('l.curve', 'Bogen', -100, 100, 1, 'signed', 0) + (l.curve && l.bg !== 'none' ? '<span class="note">Bogentext gibt es nur ohne Hinterlegung.</span>' : ''))
   + group('Ausrichtung', `<div class="chips">${[['left', 'Links'], ['center', 'Mitte'], ['right', 'Rechts']].map(([k, lb]) => chip(`data-align="${k}"`, lb, l.align === k)).join('')}</div>`)
   + group('Hinterlegung', `<div class="chips">${[['none', 'Keine'], ['solid', 'Fläche'], ['soft', 'Halbtransparent'], ['band', 'Zeilenband'], ['beads', 'Perlen'], ['ransom', 'Ausschnitte'], ['pin', 'Orts-Pille']].map(([k, lb]) => chip(`data-tbg="${k}"`, lb, l.bg === k)).join('')}</div>
     ${l.bg === 'pin' ? `<span class="sec-label">Pille</span>${swatches('textbg', TEXT_COLORS, l.bgColor)}<span class="sec-label">Stecknadel</span>${swatches('pin', PIN_COLORS, l.pinColor || '#8a4bd8')}` : l.bg !== 'none' ? swatches('textbg', TEXT_COLORS, l.bgColor) : ''}`)
@@ -868,7 +892,10 @@ panel.addEventListener('click', async e => {
   else if (d.blur) { l.params.blur.mode = d.blur; commit(); }
   else if (d.addshape) { pushList('recentEl', d.addshape, 8); const { W, H } = dims(), s = newShapeLayer(d.addshape, (visibleSlide() + .5) * W, H / 2); state.layers.push(s); ui.tab.shape = 'form'; selectLayer(s.id); pushHistory(); }
   else if (d.emoji) { pushList('recentEl', 'e:' + d.emoji, 8); const { W, H } = dims(), s = newTextLayer((visibleSlide() + .5) * W, H / 2, d.emoji); s.size = 220; s.shadow = false; s.font = 'Instrument Sans'; state.layers.push(s); ui.tab.text = 'stil'; selectLayer(s.id); pushHistory(); }
-  else if (d.addtext) { const { W, H } = dims(), s = newTextLayer((visibleSlide() + .5) * W, H / 2, 'Dein Text'); textPreset(s, d.addtext); state.layers.push(s); ui.tab.text = 'text'; selectLayer(s.id); pushHistory(); }
+  else if (d.addtext) { const { W, H } = dims(), s = newTextLayer((visibleSlide() + .5) * W, H / 2, 'Dein Text'); textPreset(s, d.addtext); state.layers.push(s); ui.tab.text = 'text';
+    if (d.addtext === 'seite') { s.x = (visibleSlide() + .88) * W; s.y = H * .05; selectLayer(s.id); action('toAll', s); ui.sel = s.id; renderUI(); toast('Seitenzahl auf jeder Slide – zählt automatisch mit'); }
+    else if (d.addtext === 'handle') { s.y = H * .94; selectLayer(s.id); pushHistory(); setTimeout(() => $('#txtIn')?.select(), 50); toast('Tipp: unter „Ebene“ → „Auf jede Slide kopieren“'); }
+    else { selectLayer(s.id); pushHistory(); } }
   else if (d.pick) { selectLayer(+d.pick); }
   else if (d.goslide) { goSlide(+d.goslide); setTimeout(renderPanel, 300); }
   else if (d.lvis) { const x = state.layers.find(y => y.id === +d.lvis); x.hidden = !x.hidden; commit(); }
@@ -905,6 +932,9 @@ function action(a, l) {
     case 'pick': ui.pick = !ui.pick; renderPanel(); updateTop(); return;
     case 'rot90': { const a0 = cropAspect(l), h0 = l.w / a0; l.rot90 = (l.rot90 + 1) % 4; if (l.crop.ratio === 'orig') l.w = h0; resetGeoEdits(l); commit(); return; }
     case 'flip': l.flip = !l.flip; resetGeoEdits(l); commit(); return;
+    case 'toAll': { const i = clamp(Math.floor(l.x / W), 0, state.slides - 1), copies = [];
+      for (let k = 0; k < state.slides; k++) if (k !== i) { const c = unlinked(clone(l)); c.id = newId(); c.x += (k - i) * W; copies.push(c); }
+      state.layers.splice(state.layers.indexOf(l) + 1, 0, ...copies); commit(); toast(`Auf ${copies.length} weitere Slide${copies.length === 1 ? '' : 's'} kopiert`, 'Rückgängig', undo); return; }
     case 'enterCrop': enterCrop(true); return;
     case 'tplReroll': state.tpl.seed = (state.tpl.seed || 0) + 1; layout(false); commit(); toast('Seiten neu gewürfelt'); return;
     case 'tplFav': { const f = LS.get('tplFav', []), id = state.tpl.kind, on = f.includes(id); LS.set('tplFav', on ? f.filter(x => x !== id) : [id, ...f]); toast(on ? 'Aus Favoriten entfernt' : 'Als Favorit gemerkt'); renderPanel(); return; }
@@ -1023,7 +1053,9 @@ async function addFiles(files) {
   // leere Vorlagen-Felder zuerst füllen – das angetippte zuerst
   const empties = state.layers.filter(l => l.type === 'image' && !l.srcId).sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0));
   if (ui.fillSlot) { const i = empties.findIndex(l => l.id === ui.fillSlot); if (i > 0) empties.unshift(empties.splice(i, 1)[0]); ui.fillSlot = null; }
-  const start = visibleSlide(); const added = []; let free = 0;
+  const fresh = !state.tpl && files.length > 1 && !state.layers.some(l => l.type === 'image' && l.srcId);
+  if (fresh) { state.slides = clamp(files.length, state.slides, 20); fit(); }
+  const start = fresh ? 0 : visibleSlide(); const added = []; let free = 0;
   for (let k = 0; k < files.length; k++) {
     const f = files[k], id = 's' + newId();
     const src = { kind: 'file', file: f, nw: 0, nh: 0, date: f.lastModified || Date.now(), base: null };
@@ -1040,7 +1072,8 @@ async function addFiles(files) {
     requestRender();
   }
   if (free && state.tpl) { const n0 = state.slides; layout(true); fit(); if (state.slides !== n0) toast(`In die Vorlage einsortiert · ${state.slides} Slides`); }
-  if (added.length) { ui.tab.image = 'looks'; selectLayer(added[added.length - 1].id); pushHistory(); if (!free || !state.tpl) toast(added.length === 1 ? 'Foto eingesetzt' : `${added.length} Fotos eingesetzt`); }
+  if (added.length && fresh) { selectLayer(null); pushHistory(); goSlide(0); toast(`${added.length} Fotos · je eine Slide`, 'Vorlage wählen', () => { selectLayer(null); ui.tab.none = 'vorlagen'; renderUI(); }); }
+  else if (added.length) { ui.tab.image = 'rahmen'; selectLayer(added[added.length - 1].id); pushHistory(); if (!free || !state.tpl) toast(added.length === 1 ? 'Foto eingesetzt' : `${added.length} Fotos eingesetzt`); }
 }
 async function replacePhoto(f) {
   const l = state.layers.find(x => x.id === ui.replaceId); ui.replaceId = null; if (!l || !f) return;
@@ -1183,6 +1216,9 @@ document.addEventListener('keydown', e => {
   if (e.target.matches('input,textarea')) return;
   const l = selLayer();
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+  else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd' && l) { e.preventDefault(); action('dup', l); }
+  else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c' && l) { ui.layerClip = clone(l); toast('Ebene kopiert'); }
+  else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v' && ui.layerClip) { e.preventDefault(); const { W } = dims(), c = unlinked(clone(ui.layerClip)); c.id = newId(); c.x = (visibleSlide() + .5) * W + (c.x % W) - W / 2; c.y += 30; state.layers.push(c); ui.sel = c.id; commit(); toast('Eingefügt'); }
   else if ((e.key === 'Delete' || e.key === 'Backspace') && l) { e.preventDefault(); action('del', l); }
   else if (l && !l.locked && e.key.startsWith('Arrow')) { e.preventDefault(); const s = e.shiftKey ? 50 : 5; if (e.key === 'ArrowLeft') l.x -= s; if (e.key === 'ArrowRight') l.x += s; if (e.key === 'ArrowUp') l.y -= s; if (e.key === 'ArrowDown') l.y += s; requestRender(); clearTimeout(keyT); keyT = setTimeout(pushHistory, 400); }
   else if (e.key === 'Escape') { for (const s of ['#exportSheet', '#previewSheet', '#projSheet', '#helpSheet']) if (!$(s).hidden) { $(s).hidden = true; return; } if (ui.pick) { ui.pick = false; renderPanel(); } else selectLayer(null); }
@@ -1214,6 +1250,6 @@ resize();
 if (document.fonts) {
   Promise.all(FONTS.map(f => document.fonts.load(`${f[2]} 40px "${f[0]}"`))).catch(() => {}).then(() => { flags.fontsTick++; requestRender(); });
 }
-if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').then(reg => reg.addEventListener('updatefound', () => { const w = reg.installing; w && w.addEventListener('statechange', () => { if (w.state === 'activated' && navigator.serviceWorker.controller) toast('Neue Version von Streifzug ist da', 'Neu laden', () => { saveNow(); setTimeout(() => location.reload(), 300); }); }); })).catch(() => {});
 window.__streifzug = { openTab: k => { ui.tab[mode() === 'image' ? 'image' : mode()] = k; renderUI(); }, state, ui, view, sources, cache, action, applyTemplate, layout, fit, selectLayer, commit, render, addFiles, saveNow, openProject,
   snapshot: (h = 360) => { const { W, H } = dims(), T = W * state.slides, c = mk(T * h / H, h), x = c.getContext('2d'); x.scale(h / H, h / H); drawScene(x, { clean: true }); return c.toDataURL('image/jpeg', .85); } };

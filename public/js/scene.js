@@ -308,7 +308,10 @@ const lumOf = hex => /^#[0-9a-f]{6}$/i.test(hex) ? lumHex(hex) : 1;
 /* ---------- Text ---------- */
 export const fontStr = l => { const f = FONTS.find(f => f[0] === l.font) || FONTS[0]; return `${f[2]} ${l.size}px "${l.font}", system-ui, sans-serif`; };
 const mctx = mk(4, 4).getContext('2d');
-const textOf = l => { const t = l.text || ' '; return l.upper ? t.toUpperCase() : t; };
+/* Platzhalter im Text: {n} = Nummer der Slide, {N} = Anzahl Slides, {datum} = heute */
+const textOf = l => { let t = l.text || ' ';
+  if (t.includes('{')) { const { W } = dims(), n = Math.min(state.slides, Math.max(1, Math.floor(l.x / W) + 1)); t = t.replace(/\{n\}/g, n).replace(/\{N\}/g, state.slides).replace(/\{datum\}/gi, new Date().toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' })); }
+  return l.upper ? t.toUpperCase() : t; };
 const LETTER_BG = new Set(['beads', 'ransom']);
 export function textMetrics(l) {
   if (LETTER_BG.has(l.bg)) { const lines = textOf(l).split('\n'), cell = l.size * (l.bg === 'beads' ? 1.02 : .92), lh = l.size * 1.25 * (l.lineH || 1.16) / 1.16;

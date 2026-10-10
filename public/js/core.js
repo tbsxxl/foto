@@ -100,7 +100,7 @@ export const LOOKS = {
 export const FONTS = [
   ['Instrument Sans', 'Klar', 600], ['Playfair Display', 'Edel', 600], ['DM Serif Display', 'Magazin', 400], ['Caveat', 'Handschrift', 600], ['Great Vibes', 'Schreibschrift', 400],
   ['Permanent Marker', 'Marker', 400], ['Pacifico', 'Retro', 400], ['Bebas Neue', 'Plakat', 400], ['Anton', 'Schlagzeile', 400],
-  ['Archivo Black', 'Fett', 400], ['Space Mono', 'Schreibmaschine', 700], ['Special Elite', 'Farbband', 400], ['VT323', 'Digital', 400], ['Press Start 2P', 'Pixel', 400]
+  ['Archivo Black', 'Fett', 400], ['Space Mono', 'Schreibmaschine', 700], ['Special Elite', 'Farbband', 400], ['VT323', 'Digital', 400], ['Press Start 2P', 'Pixel', 400], ['Abril Fatface', 'Vogue', 400], ['Lobster', 'Diner', 400], ['Shadows Into Light', 'Notizzettel', 400], ['Courier Prime', 'Courier', 700]
 ];
 export const TEXT_COLORS = ['#ffffff', '#111111', '#f2c14e', '#ff9a2e', '#e5484d', '#ff7eb6', '#3f7fe0', '#a8c5b5'];
 export const BG_COLORS = ['#ffffff', '#efece6', '#e8dcc8', '#111111', '#1f3a4d', '#b5543f', '#e9c46a', '#a8c5b5', '#e3d0e6', '#c9d6e8'];
