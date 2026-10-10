@@ -23,7 +23,7 @@ function partition(R, count, g, rnd) {
 const today = () => new Date().toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII', 'XIII', 'XIV', 'XV', 'XVI', 'XVII', 'XVIII', 'XIX', 'XX'];
 
-export const TPL_CATS = [['all', 'Alle'], ['pano', 'Panorama'], ['grid', 'Raster'], ['seam', 'Über die Naht'], ['analog', 'Analog'], ['edit', 'Editorial'], ['shape', 'Formen']];
+export const TPL_CATS = [['all', 'Alle'], ['pano', 'Panorama'], ['grid', 'Raster'], ['seam', 'Über die Naht'], ['paper', 'Papier & Notizbuch'], ['doodle', 'Kritzeleien'], ['analog', 'Analog'], ['edit', 'Editorial'], ['shape', 'Formen']];
 
 export const TEMPLATES = [
   /* ---------- Panorama ---------- */
@@ -177,8 +177,9 @@ export const TEMPLATES = [
       else for (let i = 0; i < n; i++) [[-.12, -.1, -9], [.1, .08, 7], [0, 0, -2]].forEach(([dx, dy, r]) => sl.push(C(i + .5 + dx, A * .45 + dy, .55, .55, { frame: 'polaroid', rot: r, shadow: true })));
       return { slots: sl, bg: { c1: '#ece6dc', pattern: 'paper' } };
     } },
-  { id: 'instax', cat: 'analog', name: 'Instax', desc: 'Kleine Sofortbilder im Hochformat.', vars: ['Reihe', 'Verstreut'],
+  { id: 'instax', cat: 'analog', name: 'Instax', desc: 'Kleine Sofortbilder im Hochformat.', vars: ['Reihe', 'Verstreut', 'Groß auf Dunkel'],
     build(n, A, o) {
+      if (o.v === 2) { const sl = []; for (let i = 0; i < n; i++) sl.push(C(i + .5, A * .46, .68, .68 / .82, { frame: 'instax', borderColor: '#f4f2ee', rot: i % 2 ? 1.5 : -1, shadow: true })); return { slots: sl, bg: { c1: '#1b1b1d' } }; }
       const sl = [], c = 2 * n, r = seeded(3 + o.seed * 11);
       for (let i = 0; i < c; i++) sl.push(C((i + .5) * n / c + (o.v ? (r() - .5) * .15 : 0), A * (o.v ? .3 + r() * .4 : .46), .36, .46, { frame: 'instax', rot: o.v ? (r() - .5) * 16 : (i % 2 ? 2 : -2), shadow: true }));
       return { slots: sl, bg: { c1: '#f6f1ea' } };
@@ -291,6 +292,187 @@ export const TEMPLATES = [
       return { slots: sl, deco, bg: { c1: dark ? '#121212' : '#f4efe6' } };
     } },
 
+  /* ---------- Papier & Notizbuch ---------- */
+  { id: 'torn', cat: 'paper', name: 'Risskanten', desc: 'Fotostreifen mit zerrissenen Papierkanten.', vars: ['3 Streifen', '2 Streifen', 'Senkrecht'],
+    build(n, A, o) {
+      const sl = [], E = { edge: 'torn', shadow: true };
+      if (o.v === 2) { const N = n * 2, w = n / N; for (let j = 0; j < N; j++) sl.push(S(j * w - .03, -.02, w + .06, A + .04, { ...E, edgeSides: 'lr' })); }
+      else { const k = o.v ? 2 : 3, bh = A / k; for (let i = 0; i < n; i++) for (let j = 0; j < k; j++) sl.push(S(i - .01, j * bh - (j ? .035 : .02), 1.02, bh + (j ? .07 : .055), { ...E, edgeSides: 'tb' })); }
+      return { slots: sl, bg: { c1: '#ffffff' } };
+    } },
+  { id: 'tornCollage', cat: 'paper', name: 'Zerrissene Collage', desc: 'Großes Foto, darauf gerissene Abzüge.', vars: ['Hell', 'Dunkel', "Today's dump"],
+    build(n, A, o) {
+      const sl = [], deco = [], E = { edge: 'torn', shadow: true };
+      for (let i = 0; i < n; i++) {
+        if (o.v === 1) { [[.36, .26, -3], [.62, .58, 4], [.4, .92, -2]].forEach(([fx, fy, rt]) => sl.push(C(i + fx + .1, A * fy * .9 + .05, .66, A * .34, { ...E, rot: rt }))); continue; }
+        sl.push(S(i, 0, 1, A));
+        sl.push(C(i + .64, A * .33, .62, A * .38, { ...E, rot: -3 }), C(i + .38, A * .74, .62, A * .34, { ...E, rot: 4 }));
+      }
+      if (o.v === 2) deco.push(TX('dump', .42, A * .12, "Today's\ndump", { font: 'Anton', size: .11, color: '#1d1d1d', bg: 'ransom', rot: -3 }));
+      return { slots: sl, deco, bg: { c1: o.v === 1 ? '#161616' : '#f4efe6' } };
+    } },
+  { id: 'stamps', cat: 'paper', name: 'Briefmarken', desc: 'Fotos mit gezacktem Briefmarkenrand.', vars: ['Raster auf Rot', 'Großmarke + Perlen', 'Blau 2×2'],
+    build(n, A, o) {
+      const sl = [], deco = [], St = { edge: 'stamp', borderColor: '#fbf8f1', shadow: true };
+      for (let i = 0; i < n; i++) {
+        if (o.v === 0) for (let k = 0; k < 6; k++) sl.push(C(i + .5 + (k % 2 - .5) * .4, A / 2 + (Math.floor(k / 2) - 1) * .36, .32, .27, St));
+        else if (o.v === 1) sl.push(C(i + .5, A * .44, .66, .54, { ...St, rot: i % 2 ? 3 : -4 }));
+        else for (let k = 0; k < 4; k++) sl.push(C(i + .5 + (k % 2 - .5) * .44, A / 2 + ((k >> 1) - .5) * .5, .36, .36, { ...St, rot: [-2, 2, 3, -3][k] }));
+      }
+      if (o.v === 1) deco.push(TX('beads', .5, A * .44 + .33, 'SUMMER', { font: 'Archivo Black', size: .095, color: '#1d1d1d', bg: 'beads', bgColor: '#e4e1da', rot: -4 }));
+      return { slots: sl, deco, bg: { c1: ['#9e2b25', '#cdd7e2', '#1f3a5f'][o.v] } };
+    } },
+  { id: 'deckle', cat: 'paper', name: 'Büttenrand', desc: 'Abzüge mit fransigem Papierrand.', vars: ['Drei', 'Zwei', 'Dunkel'],
+    build(n, A, o) {
+      const sl = [], k = o.v === 1 ? 2 : 3, h = (A - .12) / k - .035, w = o.v === 1 ? .7 : .58;
+      for (let i = 0; i < n; i++) for (let j = 0; j < k; j++) sl.push(C(i + .5, .06 + h / 2 + j * (h + .035), w, h, { edge: 'deckle', borderColor: o.v === 2 ? '#f4f1ea' : '#ffffff', rot: (j % 2 ? .8 : -.6) }));
+      return { slots: sl, bg: { c1: o.v === 2 ? '#141414' : '#ffffff' } };
+    } },
+  { id: 'notebook', cat: 'paper', name: 'Notizbuch', desc: 'Spiralbindung, Foto und kleine Notiz.', vars: ['Foto unten', 'Foto oben', 'Ganze Seite'],
+    build(n, A, o) {
+      const sl = [], deco = [], W = ['(Blumen)', '(Licht)', '(Meer)', '(Zuhause)', '(Morgens)', '(Wir)', '(Unterwegs)', '(Abends)'];
+      for (let i = 0; i < n; i++) {
+        if (o.v === 0) { sl.push(S(i, A * .47, 1, A * .53)); deco.push(SH('spiral', i + .5, A * .47, .96, .09, {}), TX('n' + i, i + .5, A * .23, W[i % 8], { font: 'Playfair Display', size: .03, color: '#3a3226' })); }
+        else if (o.v === 1) { sl.push(S(i, 0, 1, A * .53)); deco.push(SH('spiral', i + .5, A * .53, .96, .09, {}), TX('n' + i, i + .5, A * .8, W[i % 8], { font: 'Playfair Display', size: .03, color: '#3a3226' })); }
+        else { sl.push(C(i + .5, A * .5, .8, A * .62)); deco.push(SH('spiral', i + .5, .06, .96, .09, {}), TX('n' + i, i + .5, A * .9, W[i % 8], { font: 'Playfair Display', size: .03, color: '#3a3226' })); }
+      }
+      return { slots: sl, deco, bg: { c1: o.v === 2 ? '#fbfaf6' : '#e6dccd', pattern: o.v === 2 ? 'lines' : 'paper' } };
+    } },
+  { id: 'pinned', cat: 'paper', name: 'Angeheftet', desc: 'Abzug mit Büroklammer und Foldback-Klammer.', vars: ['Rot', 'Beige', 'Nacht'],
+    build(n, A, o) {
+      const sl = [], deco = [], ink = o.v === 1 ? '#3a3226' : '#f4efe6';
+      for (let i = 0; i < n; i++) {
+        const rot = i % 2 ? 2 : -2.5, h = A * .6;
+        sl.push(C(i + .5, A * .48, .6, h, { border: .022, borderColor: '#f7f5f0', rot, shadow: true }));
+        deco.push(SH('clip', i + .32, A * .48 - h / 2 - .02, .055, .14, { rot: rot - 8 }), SH('binder', i + .82, A * .55, .1, .085, { rot: 90 + rot }),
+          TX('pc' + i, i + .5, A * .48 + h / 2 + .095, ['Gemacht, um erinnert zu werden', 'Kleine Dinge', 'Für später', 'Nicht vergessen'][i % 4], { font: 'Special Elite', size: .026, color: ink, spacing: 10 }));
+      }
+      return { slots: sl, deco, bg: { c1: ['#7a1712', '#e8dccb', '#1b1f2a'][o.v], pattern: 'paper' } };
+    } },
+  { id: 'margin', cat: 'paper', name: 'Notizrand', desc: 'Papierstreifen mit Schreibschrift am Rand.', vars: ['Links', 'Rechts'],
+    build(n, A, o) {
+      const sl = [], deco = [], L = !o.v;
+      for (let i = 0; i < n; i++) {
+        sl.push(S(i + (L ? .2 : 0), 0, .8, A));
+        const px = i + (L ? .1 : .9);
+        deco.push(SH('paper', px, A / 2, .24, A + .1, { under: false, shadow: true }), TX('m' + i, px, A / 2, ['Ein Tag im Leben', 'Kleine Fluchten', 'Nur wir zwei', 'Irgendwo am Meer'][i % 4], { font: 'Great Vibes', size: .07, color: '#3a3226', rot: -90 }),
+          SH('clip', px + (L ? .05 : -.05), A * .12, .05, .13, { rot: L ? 10 : -10 }), SH('clip', px + (L ? .05 : -.05), A * .82, .05, .13, { rot: L ? -6 : 6 }));
+      }
+      return { slots: sl, deco, bg: { c1: '#f4f1ea' } };
+    } },
+
+  /* ---------- Kritzeleien ---------- */
+  { id: 'scribble', cat: 'doodle', name: 'Kritzel-Rahmen', desc: 'Handgezeichnete Linien um die Fotos.', vars: ['Rahmen', 'Mit Pfeil', 'Ecken'],
+    build(n, A, o) {
+      const sl = [], deco = [];
+      for (let i = 0; i < n; i++) {
+        if (o.v === 0) { sl.push(C(i + .5, A / 2, .72, A * .66)); deco.push(SH('scribble', i + .5, A / 2, .76, A * .7, { fill: '#1d1d1d' })); }
+        else if (o.v === 1) { sl.push(C(i + .42, A * .55, .62, A * .62)); deco.push(SH('scribble', i + .42, A * .55, .66, A * .66, { fill: '#1d1d1d' }), SH('scribbleArrow', i + .78, A * .15, .2, .1, { fill: '#1d1d1d', rot: 8 }),
+          TX('a' + i, i + .56, A * .11, ['alles, was ich brauche', 'genau so', 'mein Lieblingsort', 'nochmal bitte'][i % 4], { font: 'Caveat', size: .045, color: '#1d1d1d', rot: -6 })); }
+        else { sl.push(C(i + .5, A / 2, .72, A * .7)); deco.push(SH('corners', i + .5, A / 2, .82, A * .8, { fill: '#1d1d1d' })); }
+      }
+      return { slots: sl, deco, bg: { c1: '#fbfaf8' } };
+    } },
+  { id: 'moodboard', cat: 'doodle', name: 'Moodboard', desc: 'Lockeres Raster mit kleinen Kritzeleien.', gap: .02, vars: ['Hell', 'Mit Zitat'],
+    build(n, A, o) {
+      const sl = [], deco = [], g = o.g;
+      for (let i = 0; i < n; i++) {
+        sl.push(S(i + .1, .06, .5, A * .42), S(i + .64, .06, .3, A * .3));
+        const y2 = .06 + A * .42 + g; sl.push(S(i, y2, .33 - g / 2, A * .25), S(i + .33 + g / 2, y2, .33 - g, A * .25), S(i + .66 + g / 2, y2, .34 - g / 2, A * .25));
+        sl.push(S(i + .55, y2 + A * .25 + g, .3, A - (y2 + A * .25 + g) - .05));
+        deco.push(SH('sparkle', i + .2, y2 + .04, .05, .05, { outline: true, fill: '#1d1d1d', sw: 3 }), SH('sparkle', i + .53, y2 + .04, .05, .05, { outline: true, fill: '#1d1d1d', sw: 3 }), SH('scribbleArrow', i + .33, y2 + A * .25 + .12, .16, .08, { fill: '#1d1d1d' }));
+        if (o.v) deco.push(TX('q' + i, i + .25, A * .87, ['so fühlt sich\nSommer an', 'weniger, aber\nbesser', 'mehr davon', 'leise Tage'][i % 4], { font: 'Caveat', size: .045, color: '#1d1d1d', rot: -4 }));
+      }
+      return { slots: sl, deco, bg: { c1: '#ffffff' } };
+    } },
+
+  /* ---------- weitere Raster & Editorial ---------- */
+  { id: 'textGrid', cat: 'grid', name: 'Raster mit Worten', desc: 'Fotos und Wörter im Schachbrett.', vars: ['Satz', 'Nummeriert', 'Mittelspalte'],
+    build(n, A, o) {
+      const sl = [], deco = [], words = ['Hallo,', 'mein', 'liebster', 'Sommer', 'bisher.', 'Danke', 'für', 'alles', '♡'];
+      let wi = 0, num = 1; const cw = 1 / 3, ch = A / 3;
+      for (let i = 0; i < n; i++) for (let k = 0; k < 9; k++) {
+        const r = Math.floor(k / 3), c = k % 3, isText = o.v === 2 ? c === 1 : (r + c) % 2 === 1, x = i + c * cw, y = r * ch;
+        if (isText) deco.push(TX('w' + i + k, x + cw / 2, y + ch / 2, o.v === 1 ? `(${String(num++).padStart(2, '0')})` : words[wi++ % words.length], { font: o.v === 1 ? 'Space Mono' : 'Playfair Display', size: o.v === 1 ? .022 : .03, color: '#2b2b2b' }));
+        else sl.push(S(x, y, cw, ch));
+      }
+      return { slots: sl, deco, bg: { c1: '#f6f5f2' } };
+    } },
+  { id: 'diagonal', cat: 'grid', name: 'Schräge Collage', desc: 'Gekipptes Raster mit Schreibschrift-Feld.', gap: .02, vars: ['Links geneigt', 'Rechts geneigt'],
+    build(n, A, o) {
+      const a = o.v ? 16 : -24, g = Math.max(.012, o.g), cw = .78, rh = .62, cx0 = n / 2, cy0 = A / 2, sl = [], deco = [];
+      let best = null;
+      for (let j = -6; j <= Math.ceil(n / cw) + 6; j++) for (let k = -4; k <= 6; k++) {
+        const u = (j - Math.ceil(n / cw) / 2) * (cw + g) + (k % 2 ? cw / 2 : 0), v = (k - 1) * (rh + g), [x, y] = rotPt(cx0, cy0, cx0 + u, cy0 + v, a);
+        if (x < -.45 || x > n + .45 || y < -.4 || y > A + .4) continue;
+        const sl0 = C(x, y, cw, rh, { rot: a }); sl.push(sl0);
+        const d = Math.hypot(x - .45, y - A * .45); if (!best || d < best.d) best = { d, s: sl0 };
+      }
+      if (best) { sl.splice(sl.indexOf(best.s), 1); const b = best.s;
+        deco.push(SH('rect', b.x + b.w / 2, b.y + b.h / 2, cw, rh, { fill: '#f4f3ef', rot: a, under: true }), TX('dt', b.x + b.w / 2, b.y + b.h / 2, 'Meine liebsten\nMomente 2026', { font: 'Great Vibes', size: .07, color: '#2b2b2b', rot: a, lineH: 1.1 })); }
+      return { slots: sl, deco, bg: { c1: '#ffffff' } };
+    } },
+  { id: 'pip', cat: 'pano', name: 'Bild im Bild', desc: 'Foto als Hintergrund, darauf ein gerahmtes Foto.', vars: ['Mittig', 'Versetzt', 'Zwei nebeneinander'],
+    build(n, A, o) {
+      const sl = [], F = { border: .012, borderColor: '#ffffff', shadow: true };
+      for (let i = 0; i < n; i++) {
+        sl.push(S(i, 0, 1, A));
+        if (o.v === 0) sl.push(C(i + .5, A * .55, .58, A * .5, F));
+        else if (o.v === 1) sl.push(C(i + .36, A * .66, .5, A * .48, F));
+        else sl.push(C(i + .3, A * .52, .38, A * .48, { ...F, shadow: false }), C(i + .7, A * .52, .38, A * .48, { ...F, shadow: false }));
+      }
+      return { slots: sl };
+    } },
+  { id: 'poster', cat: 'edit', name: 'Filmplakat', desc: 'Titel, Lorbeerkränze und Abspann.', vars: ['Klassisch', 'Schreibschrift'],
+    build(n, A, o) {
+      const sl = [S(0, 0, 1, A)], deco = [], col = o.v ? '#d9b8e8' : '#ffffff';
+      [.3, .5, .7].forEach((x, k) => deco.push(SH('laurel', x, A * .33, .17, .13, { fill: '#ffffff' }), TX('lw' + k, x, A * .33, ['KAMERA\nROLLE', 'BESTER\nTAG', 'SCHÖNE\nMOMENTE'][k], { font: 'Bebas Neue', size: .018, color: '#ffffff', lineH: 1 })));
+      deco.push(TX('pt', .5, A * .6, o.v ? 'Hamburg' : 'HAMBURG', { font: o.v ? 'Great Vibes' : 'DM Serif Display', size: o.v ? .14 : .16, color: col }),
+        TX('pd', .62, A * .5, (o.v ? '' : '') + today().toUpperCase(), { font: 'Bebas Neue', size: .055, color: col }),
+        TX('pc', .5, A * .91, 'EIN FILM VON DIR · KAMERA STREIFZUG · MUSIK VOM WIND\nIN DEN HAUPTROLLEN: SONNE, MEER UND EIN BISSCHEN REGEN\nDEMNÄCHST IN EINEM KARUSSELL IN DEINER NÄHE', { font: 'Bebas Neue', size: .016, color: '#ffffff', lineH: 1.2, spacing: 6 }));
+      for (let i = 1; i < n; i++) { sl.push(S(i, 0, 1, A)); deco.push(TX('pk' + i, i + .5, A * .95, `SZENE ${i + 1} · ${today().toUpperCase()}`, { font: 'Bebas Neue', size: .02, color: '#ffffff', spacing: 20 })); }
+      return { slots: sl, deco, bg: { c1: '#111111' } };
+    } },
+  { id: 'ovalNoir', cat: 'edit', name: 'Kino-Oval', desc: 'Ovaler Ausschnitt auf Schwarz, leise Typo.', vars: ['Oval', 'Bogen'],
+    build(n, A, o) {
+      const sl = [], deco = [];
+      for (let i = 0; i < n; i++) {
+        sl.push(C(i + .5, A * .4, .84, A * .66, { shape: o.v ? 'arch' : 'circle' }));
+        deco.push(TX('l' + i, i + .19, A * .88, ['DIE SCHÖNHEIT', 'NUR EIN', 'LEISE', 'AM ENDE'][i % 4], { font: 'Space Mono', size: .018, color: '#e9e6df', spacing: 8 }),
+          TX('r' + i, i + .78, A * .88, ['DER KLEINEN DINGE', 'MOMENT', 'TAGE', 'DES TAGES'][i % 4], { font: 'Space Mono', size: .018, color: '#e9e6df', spacing: 8 }));
+      }
+      return { slots: sl, deco, bg: { c1: '#0b0b0b' } };
+    } },
+  { id: 'notes', cat: 'edit', name: 'Reisenotizen', desc: 'Randlose Fotos mit kleinen Schreibmaschinen-Notizen.', vars: ['Notizen', 'Mit Rahmenlinie'],
+    build(n, A, o) {
+      const sl = [], deco = [], T = { font: 'Space Mono', color: '#ffffff', shadow: true };
+      for (let i = 0; i < n; i++) {
+        sl.push(S(i, 0, 1, A));
+        deco.push(TX('t1' + i, i + .82, .08, 'REISEARCHIV', { ...T, size: .016, spacing: 20 }),
+          TX('t2' + i, i + .2, A * .32, `FILMROLLE 0${(i % 9) + 1}\nORTSZEIT ${13 + i}:4${i % 10}\nUNTERWEGS: ZU FUSS`, { ...T, size: .015, lineH: 1.35 }),
+          TX('t3' + i, i + .78, A * .66, 'NOTIZEN AUS\nDER STADT', { ...T, size: .028, lineH: 1.1, spacing: 6 }),
+          TX('t4' + i, i + .78, A * .94, `ORTSMARKE · ${['53°33′N', '48°08′N', '52°31′N', '50°56′N'][i % 4]}`, { ...T, size: .014, spacing: 10 }));
+        if (o.v) deco.push(SH('frame', i + .5, A / 2, .92, A - .08, { fill: '#ffffff', sw: 3 }));
+      }
+      return { slots: sl, deco };
+    } },
+  { id: 'scriptTitle', cat: 'edit', name: 'Schreibschrift-Titel', desc: 'Geschwungener Titel über geteiltem Bild.', vars: ['Geteilt', 'Vollbild'],
+    build(n, A, o) {
+      const sl = o.v ? [S(0, 0, 1, A)] : [S(0, 0, .5, A), S(.5, 0, .5, A)], deco = [];
+      for (let i = 1; i < n; i++) sl.push(S(i, 0, 1, A));
+      deco.push(TX('st', .48, A * .36, 'Langsame Tage', { font: 'Great Vibes', size: .13, color: '#f4e7b4', rot: -7, shadow: true }), TX('ss', .36, A * .44, 'AUF EINER INSEL', { font: 'Playfair Display', size: .032, color: '#f4e7b4', spacing: 4, shadow: true }));
+      return { slots: sl, deco };
+    } },
+  { id: 'filmV', cat: 'analog', name: 'Filmstreifen hoch', desc: 'Kleinbildstreifen im Hochformat.', vars: ['Großes Bild', 'Drei Bilder'],
+    build(n, A, o) {
+      const sl = [], F = { frame: 'filmv', borderColor: '#161616' };
+      for (let i = 0; i < n; i++) {
+        if (!o.v) sl.push(C(i + .5, A / 2, .6, A * .88, { ...F, rot: i % 2 ? 1.5 : -1, shadow: true }));
+        else { const h = .33, w = h * 1.5 > .58 ? .58 : h * 1.5, oh = h * 1.05; for (let k = 0; k < 3; k++) sl.push(C(i + .5, A / 2 + (k - 1) * oh, w, h, F)); }
+      }
+      return { slots: sl, bg: { c1: o.v ? '#e9e4da' : '#efece6', pattern: 'paper' } };
+    } },
+
   /* ---------- Formen ---------- */
   { id: 'circles', cat: 'shape', name: 'Kreise', desc: 'Runde Ausschnitte mit Rand.', vars: ['Welle', 'Groß & klein', 'Verschieden'],
     build(n, A, o) {
@@ -343,6 +525,11 @@ export function tplSVG(id, v = 0, n = 3) {
     if (d.t === 'text') { const lines = d.text.split('\n'), lh = d.size * U * 1.1, wmax = Math.max(...lines.map(t => t.length)) * d.size * U * .48;
       return lines.map((t, i) => `<rect x="${cx - wmax / 2}" y="${cy - lines.length * lh / 2 + i * lh + lh * .2}" width="${wmax * t.length / Math.max(...lines.map(q => q.length))}" height="${lh * .55}" rx="1" fill="${d.color}"${tf(d, cx, cy)}/>`).join(''); }
     const w = d.w * U, h = d.kind === 'line' ? Math.max(1, d.h * U) : d.h * U;
+    if (/^(scribble|corners|scribbleArrow|frame)$/.test(d.kind)) return `<rect x="${cx - w / 2}" y="${cy - h / 2}" width="${w}" height="${h}" fill="none" stroke="${d.fill || '#1d1d1d'}" stroke-width="1"${d.kind === 'corners' ? ' stroke-dasharray="4 12"' : ''}${tf(d, cx, cy)}/>`;
+    if (d.kind === 'spiral') return Array.from({ length: 12 }, (_, i) => `<circle cx="${cx - w / 2 + (i + .5) * w / 12}" cy="${cy}" r="${Math.max(.8, h * .35)}" fill="none" stroke="#9aa0a6" stroke-width=".8"/>`).join('');
+    if (d.kind === 'clip' || d.kind === 'binder') return `<rect x="${cx - w / 2}" y="${cy - h / 2}" width="${w}" height="${h}" rx="1" fill="${d.kind === 'clip' ? '#c3c7cc' : '#222'}"${tf(d, cx, cy)}/>`;
+    if (d.kind === 'laurel') return `<circle cx="${cx}" cy="${cy}" r="${w * .4}" fill="none" stroke="${d.fill || '#fff'}" stroke-width="1.2" stroke-dasharray="2 1"/>`;
+    if (d.kind === 'paper') return `<rect x="${cx - w / 2}" y="${cy - h / 2}" width="${w}" height="${h}" fill="#fbfaf6"${tf(d, cx, cy)}/>`;
     return d.kind === 'circle' ? `<circle cx="${cx}" cy="${cy}" r="${w / 2}" fill="${d.fill}"/>` : `<rect x="${cx - w / 2}" y="${cy - h / 2}" width="${w}" height="${h}" fill="${d.fill}" opacity="${d.kind === 'tape' ? .9 : 1}"${tf(d, cx, cy)}/>`;
   };
   (L.deco || []).filter(d => d.under).forEach(d => s += deco(d));
@@ -352,8 +539,11 @@ export function tplSVG(id, v = 0, n = 3) {
     let g = '';
     if (o.frame) { const fc = o.borderColor || '#ffffff', b = w * .07;
       g += o.frame === 'film' ? `<rect x="${x - w * .03}" y="${y - h * .2}" width="${w * 1.06}" height="${h * 1.4}" fill="#161616"/>`
+        : o.frame === 'filmv' ? `<rect x="${x - w * .15}" y="${y - h * .03}" width="${w * 1.3}" height="${h * 1.06}" fill="#161616"/>`
         : o.frame === 'dia' ? `<rect x="${cx - Math.max(w, h) * .71}" y="${cy - Math.max(w, h) * .71}" width="${Math.max(w, h) * 1.42}" height="${Math.max(w, h) * 1.42}" rx="2" fill="${fc}"/>`
         : `<rect x="${x - b}" y="${y - b}" width="${w + 2 * b}" height="${h + b * (o.frame === 'instax' ? 4.2 : 3.6)}" fill="${fc}"/>`; }
+    else if (o.edge === 'stamp') { const b = Math.min(w, h) * .075; g += `<rect x="${x - b}" y="${y - b}" width="${w + 2 * b}" height="${h + 2 * b}" fill="${o.borderColor || '#fff'}" stroke="${o.borderColor || '#fff'}" stroke-width="1.5" stroke-dasharray="1.2 1.2"/>`; }
+    else if (o.edge) { g += `<rect x="${x - .8}" y="${y - .8}" width="${w + 1.6}" height="${h + 1.6}" fill="#ffffff"/>`; }
     else if (o.border) { const b = o.border * U; g += o.shape === 'circle' ? `<ellipse cx="${cx}" cy="${cy}" rx="${w / 2 + b}" ry="${h / 2 + b}" fill="#ffffff"/>` : `<rect x="${x - b}" y="${y - b}" width="${w + 2 * b}" height="${h + 2 * b}" fill="#ffffff"/>`; }
     const sh = o.shape;
     g += sh === 'circle' || sh === 'blob' ? `<ellipse cx="${cx}" cy="${cy}" rx="${w / 2}" ry="${h / 2}" fill="${fill}"/>`
@@ -426,7 +616,7 @@ function place(l, s, j, W, t, gk) {
   l.crop = { ratio: s.w / s.h, zoom: z ? z.zoom : 1, px: z ? z.px : .5, py: z ? z.py : .5 };
   l.shape = s.frame || s.shape || (t.rad > 0 ? 'round' : 'rect');
   l.radius = s.shape === 'round' && !t.rad ? (s.radius ?? 7) : (t.rad || s.radius || 7);
-  l.border = (s.border || 0) * W; l.borderColor = s.borderColor || '#ffffff';
+  l.border = (s.border || 0) * W; l.borderColor = s.borderColor || '#ffffff'; l.edge = s.edge; l.edgeSides = s.edgeSides;
   l.shadow = t.shadow == null ? !!s.shadow : t.shadow;
   l.opacity = 1; l.blend = 'source-over'; l.slot = j; l.tplKind = t.kind; l.hidden = false;
   if (s.pano) { l.pane = { R: s.pano.R, S: [s.x, s.y, s.w, s.h] }; if (l.srcId) { l.grp = gk + ':' + (l.dupOf || l.id); } computeBox(l); }
@@ -436,10 +626,10 @@ function makeDeco(d, old, W, kind) {
   let l;
   if (d.t === 'text') {
     l = newTextLayer(d.x * W, d.y * W, d.text);
-    Object.assign(l, { font: d.font || 'Caveat', size: d.size * W, color: d.color || '#1d1d1d', shadow: !!d.shadow, spacing: d.spacing || 0, lineH: d.lineH || 1.16, rot: d.rot || 0 });
+    Object.assign(l, { font: d.font || 'Caveat', size: d.size * W, color: d.color || '#1d1d1d', shadow: !!d.shadow, spacing: d.spacing || 0, lineH: d.lineH || 1.16, rot: d.rot || 0, bg: d.bg || 'none', bgColor: d.bgColor || '#111111', align: d.align || 'center' });
     if (old && old.type === 'text') { l.text = old.text; for (const k of ['font', 'color', 'size', 'bg', 'bgColor', 'stroke', 'strokeColor', 'upper', 'glow', 'align', 'spacing', 'lineH']) if (old.userEdited) l[k] = old[k]; }
   } else {
-    l = newShapeLayer(d.kind, d.x * W, d.y * W); Object.assign(l, { w: d.w * W, h: d.h * W, fill: d.fill, rot: d.rot || 0, shadow: !!d.shadow });
+    l = newShapeLayer(d.kind, d.x * W, d.y * W); Object.assign(l, { w: d.w * W, h: d.h * W, rot: d.rot || 0, shadow: !!d.shadow }); if (d.fill) l.fill = d.fill; if (d.sw) l.sw = d.sw; if (d.outline) l.outline = true;
   }
   l.tplKey = kind + ':' + (d.key || d.kind + ':' + d.x.toFixed(3) + ':' + d.y.toFixed(3)); l.under = !!d.under;
   return l;

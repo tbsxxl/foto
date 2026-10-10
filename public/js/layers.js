@@ -12,11 +12,12 @@ export function newTextLayer(x, y, text = 'Dein Text') {
   return { id: newId(), type: 'text', x, y, text, font: 'Caveat', size: 110, color: '#ffffff', align: 'center', bg: 'none', bgColor: '#111111', rot: 0, opacity: 1, blend: 'source-over',
     shadow: true, spacing: 0, lineH: 1.16, stroke: 0, strokeColor: '#111111', upper: false, glow: false };
 }
-const SHAPE_DEF = { line: [600, 14], arrow: [420, 150], tape: [300, 80], frame: [700, 860], heart: [300, 270], star: [300, 290], sparkle: [220, 220] };
+const SHAPE_DEF = { line: [600, 14], arrow: [420, 150], tape: [300, 80], frame: [700, 860], heart: [300, 270], star: [300, 290], sparkle: [220, 220], paper: [600, 420], spiral: [1040, 90], clip: [70, 170], binder: [110, 95], laurel: [220, 200], scribble: [700, 860], corners: [700, 860], scribbleArrow: [260, 140] };
+const SHAPE_FILL = { tape: '#f3e2b3', frame: '#ffffff', paper: '#fbfaf6', clip: '#9aa0a6', binder: '#1c1c1c', laurel: '#ffffff', scribble: '#1d1d1d', corners: '#1d1d1d', scribbleArrow: '#1d1d1d' };
 export function newShapeLayer(kind, x, y) {
   const [w, h] = SHAPE_DEF[kind] || [420, 420];
-  return { id: newId(), type: 'shape', kind, x, y, w, h, rot: 0, opacity: 1, blend: 'source-over', fill: kind === 'tape' ? '#f3e2b3' : kind === 'frame' ? '#ffffff' : '#f2c14e',
-    outline: false, sw: 12, radius: 18, shadow: false };
+  return { id: newId(), type: 'shape', kind, x, y, w, h, rot: 0, opacity: 1, blend: 'source-over', fill: SHAPE_FILL[kind] || '#f2c14e',
+    outline: false, sw: /^(scribble|corners|scribbleArrow)$/.test(kind) ? 5 : 12, radius: 18, shadow: false };
 }
 export function coverSlide(l, i) {
   const { W, H } = dims(), a = cropAspect(l);

@@ -469,12 +469,23 @@ function shapeIcon(k) {
     arrow: `<path d="M6 18h18v-5l10 7-10 7v-5H6z" ${f}/>`, star: `<path d="M20 5l4.4 9.3 10 1.2-7.4 6.9 2 10L20 27.4 11 32.4l2-10-7.4-6.9 10-1.2z" ${f}/>`,
     heart: `<path d="M20 33C8 25 5 19 5 14a7.5 7.5 0 0 1 15-2 7.5 7.5 0 0 1 15 2c0 5-3 11-15 19z" ${f}/>`, sparkle: `<path d="M20 4Q20 20 36 20Q20 20 20 36Q20 20 4 20Q20 20 20 4z" ${f}/>`,
     blob: `<path d="M20 6c9 0 15 5 14 13s-6 15-15 15S5 29 6 20 11 6 20 6z" ${f}/>`, tape: `<path d="M4 14l2 3-2 3 2 3-2 3h32l-2-3 2-3-2-3 2-3z" fill="#f3e2b3" opacity=".9"/>`,
-    arch: `<path d="M9 34V18a11 11 0 0 1 22 0v16z" ${f}/>` }[k] || '';
+    arch: `<path d="M9 34V18a11 11 0 0 1 22 0v16z" ${f}/>`,
+    paper: `<path d="M5 9l4 1 3-2 4 2 5-1 4 1 5-2 5 2-1 4 1 5-1 6 1 5-1 4-5-1-4 2-5-1-4 1-4-2-4 1-1-5 1-5-1-6 1-5z" fill="#fbfaf6"/>`,
+    spiral: [6, 14, 22, 30].map(x => `<ellipse cx="${x + 2}" cy="20" rx="3" ry="9" fill="none" stroke="#c8ccd0" stroke-width="2"/>`).join(''),
+    clip: `<path d="M24 14v16a5 5 0 0 1-10 0V9a6 6 0 0 1 12 0v17" fill="none" stroke="#9aa0a6" stroke-width="2.5"/>`,
+    binder: `<path d="M12 22h16l4 12H8z" fill="#888"/><path d="M14 22l2-14h8l2 14" fill="none" stroke="#c8ccd0" stroke-width="2"/>`,
+    laurel: `<path d="M12 32a14 14 0 0 1 0-24M28 32a14 14 0 0 0 0-24" fill="none" stroke="var(--accent)" stroke-width="3" stroke-dasharray="3 2"/>`,
+    scribble: `<path d="M7 8l27 1-1 24-26-1z M9 6l23 3" fill="none" stroke="var(--fg)" stroke-width="2"/>`,
+    corners: `<path d="M6 16V6h10M34 24v10H24" fill="none" stroke="var(--fg)" stroke-width="2.5"/>`,
+    scribbleArrow: `<path d="M5 12q6 20 17 14t13-14M30 10h5v6" fill="none" stroke="var(--fg)" stroke-width="2.5"/>` }[k] || '';
 }
-const TEXT_PRESETS = [['klassisch', 'Klassisch'], ['etikett', 'Etikett'], ['neon', 'Neon'], ['zeitung', 'Zeitung'], ['plakat', 'Plakat'], ['pixel', 'Pixel'], ['notiz', 'Notiz'], ['kontur', 'Kontur']];
+const TEXT_PRESETS = [['perlen', 'Perlen'], ['erpresser', 'Ausschnitte'], ['schreibschrift', 'Schreibschrift'], ['klassisch', 'Klassisch'], ['etikett', 'Etikett'], ['neon', 'Neon'], ['zeitung', 'Zeitung'], ['plakat', 'Plakat'], ['pixel', 'Pixel'], ['notiz', 'Notiz'], ['kontur', 'Kontur']];
 function textPreset(l, k) {
   const base = { bg: 'none', shadow: true, glow: false, stroke: 0, spacing: 0, upper: false, lineH: 1.16 };
   const P = {
+    perlen: { font: 'Archivo Black', color: '#1d1d1d', bg: 'beads', bgColor: '#e4e1da', upper: true, size: 90, shadow: false },
+    erpresser: { font: 'Anton', color: '#1d1d1d', bg: 'ransom', size: 120, shadow: false },
+    schreibschrift: { font: 'Great Vibes', color: '#f4e7b4', size: 150 },
     klassisch: { font: 'Playfair Display', color: '#ffffff', size: 100 },
     etikett: { font: 'Space Mono', color: '#ffffff', bg: 'band', bgColor: '#111111', upper: true, spacing: 6, size: 54, shadow: false },
     neon: { font: 'Pacifico', color: '#ff7eb6', glow: true, size: 110, shadow: false },
@@ -565,7 +576,8 @@ const IMAGE_PANELS = {
 };
 const BRUSH_MODES = [['dodge', 'Aufhellen'], ['burn', 'Abdunkeln'], ['sat', 'Sättigung +'], ['desat', 'Sättigung −'], ['warm', 'Wärmer'], ['cool', 'Kühler'], ['erase', 'Radierer']];
 const CLIPS = [['rect', 'Rechteck'], ['round', 'Abgerundet'], ['circle', 'Kreis'], ['arch', 'Bogen'], ['heart', 'Herz'], ['star', 'Stern'], ['blob', 'Klecks']];
-const FRAME_LIST = [['polaroid', 'Sofortbild'], ['instax', 'Instax'], ['film', 'Kleinbild'], ['dia', 'Dia']];
+const FRAME_LIST = [['polaroid', 'Sofortbild'], ['instax', 'Instax'], ['film', 'Kleinbild'], ['filmv', 'Kleinbild hoch'], ['dia', 'Dia']];
+const EDGES = [['', 'Glatt'], ['torn', 'Zerrissen'], ['deckle', 'Büttenrand'], ['stamp', 'Briefmarke']];
 function panelImageLayer(l) {
   const framed = FRAMES.has(l.shape);
   return group('', slider('l.wpct', 'Größe (Slide-Breite)', 10, 100 * state.slides + 100, 1, 'pct', 100) + slider('l.rot', 'Drehung', -180, 180, .5, 'deg') + slider('l.opacity', 'Deckkraft', 0, 100, 1, 'pct', 100, 100))
@@ -574,6 +586,8 @@ function panelImageLayer(l) {
     ${slider('l.border', framed ? 'Randbreite' : 'Rand', 0, 120, 1, 'px')}${swatches('frame', FRAME_COLORS.concat(l.shape === 'film' ? ['#161616'] : []), l.borderColor)}
     ${framed ? `<input class="name" id="capIn" value="${esc(l.caption || '')}" placeholder="${l.shape === 'film' ? 'Filmaufdruck' : 'Beschriftung, z. B. Juli 24'}" maxlength="40" aria-label="Beschriftung">` : ''}
     ${toggle('shadow', 'Schatten', l.shadow)}`)
+  + (framed ? '' : group('Kante', `<div class="chips">${EDGES.map(([k, lb]) => chip(`data-edge="${k}"`, lb, (l.edge || '') === k)).join('')}</div>
+    ${l.edge === 'torn' ? `<div class="chips">${[['all', 'Rundum'], ['tb', 'Oben & unten'], ['lr', 'Links & rechts']].map(([k, lb]) => chip(`data-edgesides="${k}"`, lb, (l.edgeSides || 'all') === k)).join('')}</div>` : ''}`))
   + group('Mischmodus', `<div class="chips scroll">${BLENDS.map(([k, lb]) => chip(`data-blend="${k}"`, lb, (l.blend || 'source-over') === k)).join('')}</div><span class="note">Für Doppelbelichtung: Foto über ein anderes legen, „Negativ multipl.“ oder „Aufhellen“ wählen.</span>`)
   + `<div class="row">${btn('fillSlide', 'Slide füllen')}${btn('fillAll', 'Alle Slides füllen')}${btn('center', 'Auf Slide zentrieren')}${btn('replace', 'Foto ersetzen')}${btn('bgBlur', 'Als unscharfer Hintergrund')}</div>` + layerOrderRow(l);
 }
@@ -592,17 +606,17 @@ function panelTextStyle(l) {
   return group('', slider('l.size', 'Größe', 16, 400, 1, 'px', 110) + slider('l.rot', 'Drehung', -180, 180, .5, 'deg') + slider('l.spacing', 'Laufweite', -10, 60, 1, 'n') + slider('l.lineH', 'Zeilenabstand', .8, 2, .02, 'lh', 1.16))
   + group('Farbe', swatches('text', TEXT_COLORS, l.color))
   + group('Ausrichtung', `<div class="chips">${[['left', 'Links'], ['center', 'Mitte'], ['right', 'Rechts']].map(([k, lb]) => chip(`data-align="${k}"`, lb, l.align === k)).join('')}</div>`)
-  + group('Hinterlegung', `<div class="chips">${[['none', 'Keine'], ['solid', 'Fläche'], ['soft', 'Halbtransparent'], ['band', 'Zeilenband']].map(([k, lb]) => chip(`data-tbg="${k}"`, lb, l.bg === k)).join('')}</div>
+  + group('Hinterlegung', `<div class="chips">${[['none', 'Keine'], ['solid', 'Fläche'], ['soft', 'Halbtransparent'], ['band', 'Zeilenband'], ['beads', 'Perlen'], ['ransom', 'Ausschnitte']].map(([k, lb]) => chip(`data-tbg="${k}"`, lb, l.bg === k)).join('')}</div>
     ${l.bg !== 'none' ? swatches('textbg', TEXT_COLORS, l.bgColor) : ''}`)
   + group('Kontur', slider('l.stroke', 'Konturstärke', 0, 20, .5, 'n') + (l.stroke ? swatches('stroke', TEXT_COLORS, l.strokeColor) : ''))
   + toggle('upper', 'Großbuchstaben', l.upper) + toggle('glow', 'Leuchten (Neon)', l.glow) + (l.bg === 'none' ? toggle('tshadow', 'Schatten für Lesbarkeit', l.shadow) : '');
 }
 function panelShape(l) {
-  const canOutline = !['line', 'arrow', 'tape', 'frame'].includes(l.kind);
+  const canOutline = !['line', 'arrow', 'tape', 'frame', 'paper', 'spiral', 'clip', 'binder', 'laurel', 'scribble', 'corners', 'scribbleArrow'].includes(l.kind);
   return group('Form', `<div class="chips">${SHAPES.map(([k, lb]) => chip(`data-skind="${k}"`, lb, l.kind === k)).join('')}</div>`)
     + group('Farbe', swatches('fill', TEXT_COLORS.concat(['#f3e2b3']), l.fill))
     + group('', slider('l.w', l.kind === 'line' ? 'Länge' : 'Breite', 20, 3000, 1, 'px') + slider('l.h', l.kind === 'line' ? 'Stärke' : 'Höhe', 2, 3000, 1, 'px')
-      + (l.kind === 'round' ? slider('l.radius', 'Eckenradius', 1, 50, 1, 'n', 18) : '') + (canOutline && l.outline || l.kind === 'frame' ? slider('l.sw', 'Linienstärke', 2, 80, 1, 'px', 12) : ''))
+      + (l.kind === 'round' ? slider('l.radius', 'Eckenradius', 1, 50, 1, 'n', 18) : '') + (canOutline && l.outline || /^(frame|scribble|corners|scribbleArrow)$/.test(l.kind) ? slider('l.sw', 'Linienstärke', 2, 80, 1, 'px', 12) : ''))
     + (canOutline ? toggle('outline', 'Nur Umriss', l.outline) : '') + toggle('shadow', 'Schatten', l.shadow);
 }
 
@@ -635,6 +649,8 @@ panel.addEventListener('click', async e => {
   else if (d.ratio) { l.crop.ratio = d.ratio === 'orig' ? 'orig' : +d.ratio; delete l.crop.box; commit(); }
   else if (d.shape) { l.shape = d.shape; if (d.shape === 'film') l.borderColor = '#161616'; else if (d.shape === 'dia') l.borderColor = '#ece8de'; else if (FRAMES.has(d.shape) && l.borderColor === '#161616') l.borderColor = '#ffffff'; commit(); }
   else if (d.blend) { l.blend = d.blend; commit(); }
+  else if (d.edge !== undefined) { l.edge = d.edge || undefined; if (d.edge === 'stamp' && !l.borderColor) l.borderColor = '#ffffff'; commit(); }
+  else if (d.edgesides) { l.edgeSides = d.edgesides; commit(); }
   else if (d.font) { l.font = d.font; commit(); }
   else if (d.tpreset) { textPreset(l, d.tpreset); commit(); }
   else if (d.align) { l.align = d.align; commit(); }
