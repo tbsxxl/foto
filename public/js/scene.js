@@ -56,7 +56,8 @@ export function edgePath(c, x, y, w, h, seed, amp, sides = 'all', inset = 0, kin
   const edge = (x0, y0, x1, y1, nx, ny, torn) => { const len = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.round(len / step));
     for (let i = 0; i < n; i++) { const t = i / n; let j = inset;
       if (torn) { v = clamp(v + (r() - .5) * .7, -1, 1); j += kind === 'deckle' ? amp * r() : amp * (.5 + .45 * v) + amp * .3 * r(); }
-      pts.push([x0 + (x1 - x0) * t + nx * j, y0 + (y1 - y0) * t + ny * j]); } };
+      const k = i ? 0 : j / len; // Ecke: auch entlang der Kante einrücken, sonst bleibt dort eine Spitze stehen
+      pts.push([x0 + (x1 - x0) * (t + k) + nx * j, y0 + (y1 - y0) * (t + k) + ny * j]); } };
   edge(x, y, x + w, y, 0, 1, on('t')); edge(x + w, y, x + w, y + h, -1, 0, on('r')); edge(x + w, y + h, x, y + h, 0, -1, on('b')); edge(x, y + h, x, y, 1, 0, on('l'));
   c.beginPath(); pts.forEach(([px, py], i) => i ? c.lineTo(px, py) : c.moveTo(px, py)); c.closePath();
 }
@@ -78,6 +79,27 @@ function imageClip(c, l, bx) {
   const { w, h, iy } = bx, framed = FRAMES.has(l.shape);
   if (!framed && (l.edge === 'torn' || l.edge === 'deckle')) { const a = edgeAmp(l, w, h); edgePath(c, -w / 2, -h / 2 + iy, w, h, (l.slot ?? l.id) * 7 + 3, a, l.edgeSides || 'all', a * .55, l.edge); }
   else shapePath(c, framed ? 'rect' : l.shape, -w / 2, -h / 2 + iy, w, h, l.radius ?? 7);
+}
+/* Kantenglättung: Safari glättet Clip-Pfade nicht – gedrehte Fotos bekämen Treppenkanten. Rechteckige Fotos werden deshalb
+   direkt gezeichnet (Bildkanten glättet jeder Browser), alle anderen Formen ungedreht mit weicher Maske in eine eigene Fläche
+   gerendert und dann gedreht hineingezeichnet. Die Fläche wird pro Ebene zwischengespeichert. */
+const maskCache = new Map(), imgIds = new WeakMap(); let imgN = 0;
+const imgId = o => { let v = imgIds.get(o); if (!v) { v = ++imgN; imgIds.set(o, v); } return v; };
+function drawMasked(c, l, bx, img, sx, sy, sw, sh, tag = 'i') {
+  const { w, h, iy } = bx, framed = FRAMES.has(l.shape), soft = !framed && (l.edge === 'torn' || l.edge === 'deckle');
+  if (framed || (!soft && (!l.shape || l.shape === 'rect'))) { c.drawImage(img, sx, sy, sw, sh, -w / 2, -h / 2 + iy, w, h); return; }
+  const m = c.getTransform(); let q = Math.hypot(m.a, m.b) || 1; q = q > 1.5 ? Math.round(q * 4) / 4 : Math.max(.05, Math.round(q * 40) / 40);
+  q = Math.min(q, 4096 / Math.max(w, h)); const W2 = Math.ceil(w * q) + 2, H2 = Math.ceil(h * q) + 2;
+  const key = [imgId(img), sx | 0, sy | 0, sw | 0, sh | 0, w.toFixed(1), h.toFixed(1), iy.toFixed(1), q, l.shape, l.radius, l.edge, l.edgeSides, l.slot ?? l.id].join('|'), ck = l.id + tag;
+  let e = maskCache.get(ck);
+  if (!e || e.key !== key) {
+    const o = e && e.cv.width === W2 && e.cv.height === H2 ? e.cv : mk(W2, H2), x = o.getContext('2d');
+    x.setTransform(1, 0, 0, 1, 0, 0); x.globalCompositeOperation = 'source-over'; x.clearRect(0, 0, W2, H2); x.imageSmoothingQuality = 'high';
+    x.drawImage(img, sx, sy, sw, sh, 1, 1, w * q, h * q);
+    x.globalCompositeOperation = 'destination-in'; x.setTransform(q, 0, 0, q, w * q / 2 + 1, h * q / 2 - iy * q + 1); imageClip(x, l, bx); x.fill();
+    e = { key, cv: o }; maskCache.delete(ck); maskCache.set(ck, e); if (maskCache.size > 48) maskCache.delete(maskCache.keys().next().value);
+  }
+  c.drawImage(e.cv, -w / 2 - 1 / q, -h / 2 + iy - 1 / q, W2 / q, H2 / q);
 }
 function drawEdge(c, l, bx) {
   const { ow, oh, w, h, iy } = bx;
@@ -256,8 +278,7 @@ function drawCut(c, l, opts) {
   const img = opts.procs ? opts.procs.get(cacheKey(l)) : ensureCache(l)?.proc; if (!img) return;
   const cut = getCut(l, img).img, bx = boxOf(l), { w, h, iy } = bx, clip = FRAMES.has(l.shape) ? 'rect' : l.shape;
   c.save(); c.translate(l.x, l.y); c.rotate(l.rot * Math.PI / 180); c.globalAlpha = l.opacity ?? 1;
-  imageClip(c, l, bx); c.clip();
-  const [sx, sy, sw, sh] = cropRect(cut.width, cut.height, l); c.imageSmoothingQuality = 'high'; c.drawImage(cut, sx, sy, sw, sh, -w / 2, -h / 2 + iy, w, h);
+  const [sx, sy, sw, sh] = cropRect(cut.width, cut.height, l); c.imageSmoothingQuality = 'high'; drawMasked(c, l, bx, cut, sx, sy, sw, sh, 'c');
   c.restore();
 }
 /* verknüpfte Fenster eines Fotos teilen sich die Berechnung */
@@ -301,13 +322,13 @@ function drawImageLayer(c, l, opts) {
   else if (bb > 0 || l.shadow) {
     c.save();
     if (l.shadow) { c.shadowColor = 'rgba(0,0,0,.38)'; c.shadowBlur = ow * .06; c.shadowOffsetY = ow * .025; }
-    shapePath(c, clip, -ow / 2, -oh / 2, ow, oh, l.radius ?? 7, bb);
+    const ins = bb > 0 ? 0 : Math.min(ow, oh) * .004; // ohne Rand: Schattenfläche minimal einrücken, sonst dunkler Saum an geglätteten Kanten
+    shapePath(c, clip, -ow / 2 + ins, -oh / 2 + ins, ow - 2 * ins, oh - 2 * ins, l.radius ?? 7, bb);
     c.fillStyle = bb > 0 ? l.borderColor : '#000'; c.fill(); c.restore();
   }
   c.save();
-  imageClip(c, l, bx); c.clip();
-  if (img) { const [sx, sy, sw, sh] = cropRect(img.width, img.height, l); c.imageSmoothingQuality = 'high'; c.drawImage(img, sx, sy, sw, sh, -w / 2, -h / 2 + iy, w, h); }
-  else { c.fillStyle = 'rgba(128,128,128,.35)'; c.fillRect(-w / 2, -h / 2 + iy, w, h); }
+  if (img) { const [sx, sy, sw, sh] = cropRect(img.width, img.height, l); c.imageSmoothingQuality = 'high'; drawMasked(c, l, bx, img, sx, sy, sw, sh); }
+  else { imageClip(c, l, bx); c.fillStyle = 'rgba(128,128,128,.35)'; c.fill(); }
   c.restore();
   if (l.shape === 'dia') { c.save(); c.strokeStyle = 'rgba(0,0,0,.18)'; c.lineWidth = ow * .006; c.strokeRect(-w / 2, -h / 2 + iy, w, h); c.restore(); }
   if (l.keyline) { c.save(); c.strokeStyle = l.keyline; c.lineWidth = Math.max(2, Math.min(w, h) * .004); const o = (l.keylineGap || 0) * Math.min(w, h); c.strokeRect(-w / 2 - o, -h / 2 + iy - o, w + 2 * o, h + 2 * o); c.restore(); }
