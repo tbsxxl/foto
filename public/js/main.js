@@ -470,6 +470,10 @@ function shapeIcon(k) {
     heart: `<path d="M20 33C8 25 5 19 5 14a7.5 7.5 0 0 1 15-2 7.5 7.5 0 0 1 15 2c0 5-3 11-15 19z" ${f}/>`, sparkle: `<path d="M20 4Q20 20 36 20Q20 20 20 36Q20 20 4 20Q20 20 20 4z" ${f}/>`,
     blob: `<path d="M20 6c9 0 15 5 14 13s-6 15-15 15S5 29 6 20 11 6 20 6z" ${f}/>`, tape: `<path d="M4 14l2 3-2 3 2 3-2 3h32l-2-3 2-3-2-3 2-3z" fill="#f3e2b3" opacity=".9"/>`,
     arch: `<path d="M9 34V18a11 11 0 0 1 22 0v16z" ${f}/>`,
+    lace: `<path d="M14 4h12v32H14z" fill="#fbfaf6"/><g fill="#fbfaf6">${[8, 16, 24, 32].map(y => `<circle cx="14" cy="${y}" r="4"/><circle cx="26" cy="${y}" r="4"/>`).join('')}</g>`,
+    starSticker: `<path d="M20 5l4.4 9.3 10 1.2-7.4 6.9 2 10L20 27.4 11 32.4l2-10-7.4-6.9 10-1.2z" fill="#d8d3c8" stroke="#fff"/>`,
+    leaves: `<path d="M12 8q7 5 0 12q-7-7 0-12zM27 18q7 5 0 12q-7-7 0-12z" fill="#d9822b"/>`,
+    check: `<circle cx="20" cy="20" r="12" fill="#3b82f6"/><path d="M14 20l4 4 8-8" fill="none" stroke="#fff" stroke-width="3"/>`,
     paper: `<path d="M5 9l4 1 3-2 4 2 5-1 4 1 5-2 5 2-1 4 1 5-1 6 1 5-1 4-5-1-4 2-5-1-4 1-4-2-4 1-1-5 1-5-1-6 1-5z" fill="#fbfaf6"/>`,
     spiral: [6, 14, 22, 30].map(x => `<ellipse cx="${x + 2}" cy="20" rx="3" ry="9" fill="none" stroke="#c8ccd0" stroke-width="2"/>`).join(''),
     clip: `<path d="M24 14v16a5 5 0 0 1-10 0V9a6 6 0 0 1 12 0v17" fill="none" stroke="#9aa0a6" stroke-width="2.5"/>`,
@@ -479,10 +483,11 @@ function shapeIcon(k) {
     corners: `<path d="M6 16V6h10M34 24v10H24" fill="none" stroke="var(--fg)" stroke-width="2.5"/>`,
     scribbleArrow: `<path d="M5 12q6 20 17 14t13-14M30 10h5v6" fill="none" stroke="var(--fg)" stroke-width="2.5"/>` }[k] || '';
 }
-const TEXT_PRESETS = [['perlen', 'Perlen'], ['erpresser', 'Ausschnitte'], ['schreibschrift', 'Schreibschrift'], ['klassisch', 'Klassisch'], ['etikett', 'Etikett'], ['neon', 'Neon'], ['zeitung', 'Zeitung'], ['plakat', 'Plakat'], ['pixel', 'Pixel'], ['notiz', 'Notiz'], ['kontur', 'Kontur']];
+const TEXT_PRESETS = [['ort', '📍 Ort'], ['perlen', 'Perlen'], ['erpresser', 'Ausschnitte'], ['schreibschrift', 'Schreibschrift'], ['klassisch', 'Klassisch'], ['etikett', 'Etikett'], ['neon', 'Neon'], ['zeitung', 'Zeitung'], ['plakat', 'Plakat'], ['pixel', 'Pixel'], ['notiz', 'Notiz'], ['kontur', 'Kontur']];
 function textPreset(l, k) {
   const base = { bg: 'none', shadow: true, glow: false, stroke: 0, spacing: 0, upper: false, lineH: 1.16 };
   const P = {
+    ort: { font: 'Instrument Sans', color: '#1d1d1d', bg: 'pin', bgColor: '#ffffff', size: 40, shadow: false },
     perlen: { font: 'Archivo Black', color: '#1d1d1d', bg: 'beads', bgColor: '#e4e1da', upper: true, size: 90, shadow: false },
     erpresser: { font: 'Anton', color: '#1d1d1d', bg: 'ransom', size: 120, shadow: false },
     schreibschrift: { font: 'Great Vibes', color: '#f4e7b4', size: 150 },
@@ -555,7 +560,7 @@ const IMAGE_PANELS = {
     <div class="chips">${chip('data-cutmode="add"', 'Motiv malen', ui.cutMode !== 'erase')}${chip('data-cutmode="erase"', 'Radierer', ui.cutMode === 'erase')}</div>
     ${group('', slider('ui.cutSize', 'Pinselgröße', 1, 25, .5, 'n', 5))}
     ${toggle('cutsmart', 'Kantenerkennung (malt nur ähnliche Farben)', ui.cutSmart)}${toggle('cutshow', 'Maske rot anzeigen', ui.cutShow)}
-    ${n ? toggle('cuton', 'Motiv vorne', l.cut.on !== false) : ''}
+    ${n ? toggle('cuton', 'Motiv vorne', l.cut.on !== false) : ''}${toggle('sticker', 'Als Sticker ausschneiden (weißer Rand)', l.sticker)}
     <div class="row">${btn('cutUndo', 'Letzten Strich entfernen', 'ghost', n ? '' : 'disabled')}${btn('cutClear', 'Maske löschen', 'danger', n ? '' : 'disabled')}</div>
     <p class="note">Tipp: Für Kanten kleinen Pinsel nehmen und reinzoomen (zwei Finger). Der Text muss in der Ebenen-Reihenfolge über dem Foto liegen.</p>`; },
   pinsel: (l, p) => `<div class="chips">${BRUSH_MODES.map(([k, lb]) => chip(`data-bmode="${k}"`, lb, ui.brushMode === k)).join('')}</div>
@@ -584,6 +589,7 @@ function panelImageLayer(l) {
   + group('Form', `<div class="chips">${CLIPS.map(([k, lb]) => chip(`data-shape="${k}"`, lb, l.shape === k)).join('')}</div>${l.shape === 'round' ? slider('l.radius', 'Eckenradius', 1, 50, 1, 'n', 7) : ''}`)
   + group('Rahmen', `<div class="chips">${FRAME_LIST.map(([k, lb]) => chip(`data-shape="${k}"`, lb, l.shape === k)).join('')}</div>
     ${slider('l.border', framed ? 'Randbreite' : 'Rand', 0, 120, 1, 'px')}${swatches('frame', FRAME_COLORS.concat(l.shape === 'film' ? ['#161616'] : []), l.borderColor)}
+    ${!framed ? `<div class="row"><span class="note">Feine Linie</span><div class="chips">${[['', 'Keine'], ['#111111', 'Schwarz'], ['#ffffff', 'Weiß']].map(([k, lb]) => chip(`data-keyline="${k}"`, lb, (l.keyline || '') === k)).join('')}</div></div>` : ''}
     ${framed ? `<input class="name" id="capIn" value="${esc(l.caption || '')}" placeholder="${l.shape === 'film' ? 'Filmaufdruck' : 'Beschriftung, z. B. Juli 24'}" maxlength="40" aria-label="Beschriftung">` : ''}
     ${toggle('shadow', 'Schatten', l.shadow)}`)
   + (framed ? '' : group('Kante', `<div class="chips">${EDGES.map(([k, lb]) => chip(`data-edge="${k}"`, lb, (l.edge || '') === k)).join('')}</div>
@@ -606,13 +612,13 @@ function panelTextStyle(l) {
   return group('', slider('l.size', 'Größe', 16, 400, 1, 'px', 110) + slider('l.rot', 'Drehung', -180, 180, .5, 'deg') + slider('l.spacing', 'Laufweite', -10, 60, 1, 'n') + slider('l.lineH', 'Zeilenabstand', .8, 2, .02, 'lh', 1.16))
   + group('Farbe', swatches('text', TEXT_COLORS, l.color))
   + group('Ausrichtung', `<div class="chips">${[['left', 'Links'], ['center', 'Mitte'], ['right', 'Rechts']].map(([k, lb]) => chip(`data-align="${k}"`, lb, l.align === k)).join('')}</div>`)
-  + group('Hinterlegung', `<div class="chips">${[['none', 'Keine'], ['solid', 'Fläche'], ['soft', 'Halbtransparent'], ['band', 'Zeilenband'], ['beads', 'Perlen'], ['ransom', 'Ausschnitte']].map(([k, lb]) => chip(`data-tbg="${k}"`, lb, l.bg === k)).join('')}</div>
+  + group('Hinterlegung', `<div class="chips">${[['none', 'Keine'], ['solid', 'Fläche'], ['soft', 'Halbtransparent'], ['band', 'Zeilenband'], ['beads', 'Perlen'], ['ransom', 'Ausschnitte'], ['pin', 'Orts-Pille']].map(([k, lb]) => chip(`data-tbg="${k}"`, lb, l.bg === k)).join('')}</div>
     ${l.bg !== 'none' ? swatches('textbg', TEXT_COLORS, l.bgColor) : ''}`)
   + group('Kontur', slider('l.stroke', 'Konturstärke', 0, 20, .5, 'n') + (l.stroke ? swatches('stroke', TEXT_COLORS, l.strokeColor) : ''))
   + toggle('upper', 'Großbuchstaben', l.upper) + toggle('glow', 'Leuchten (Neon)', l.glow) + (l.bg === 'none' ? toggle('tshadow', 'Schatten für Lesbarkeit', l.shadow) : '');
 }
 function panelShape(l) {
-  const canOutline = !['line', 'arrow', 'tape', 'frame', 'paper', 'spiral', 'clip', 'binder', 'laurel', 'scribble', 'corners', 'scribbleArrow'].includes(l.kind);
+  const canOutline = !['line', 'arrow', 'tape', 'frame', 'paper', 'lace', 'starSticker', 'leaves', 'check', 'spiral', 'clip', 'binder', 'laurel', 'scribble', 'corners', 'scribbleArrow'].includes(l.kind);
   return group('Form', `<div class="chips">${SHAPES.map(([k, lb]) => chip(`data-skind="${k}"`, lb, l.kind === k)).join('')}</div>`)
     + group('Farbe', swatches('fill', TEXT_COLORS.concat(['#f3e2b3']), l.fill))
     + group('', slider('l.w', l.kind === 'line' ? 'Länge' : 'Breite', 20, 3000, 1, 'px') + slider('l.h', l.kind === 'line' ? 'Stärke' : 'Höhe', 2, 3000, 1, 'px')
@@ -631,7 +637,7 @@ panel.addEventListener('click', async e => {
     if (k === 'grad') state.bg.grad = on; else if (k === 'grid') { ui.grid = on; renderPanel(); requestRender(); return; }
     else if (k === 'stamp') l.params.stamp = on; else if (k === 'shadow' || k === 'tshadow') l.shadow = on; else if (k === 'upper') l.upper = on; else if (k === 'glow') l.glow = on;
     else if (k === 'outline') l.outline = on; else if (k === 'cutsmart') { ui.cutSmart = on; renderPanel(); return; } else if (k === 'cutshow') { ui.cutShow = on; renderPanel(); requestRender(); return; }
-    else if (k === 'cuton') l.cut.on = on; else if (k === 'minv') l.params.masks[ui.maskSel].inv = on;
+    else if (k === 'cuton') l.cut.on = on; else if (k === 'sticker') { l.sticker = on; if (on && !(l.cut && l.cut.strokes.length)) toast('Male jetzt über das Motiv – nur das wird zum Sticker'); } else if (k === 'minv') l.params.masks[ui.maskSel].inv = on;
     commit();
   }
   else if (d.tpl) { const T = tplDef(d.tpl), v = state.tpl && state.tpl.kind === d.tpl ? (state.tpl.v + 1) % T.vars.length : 0; const n0 = state.slides;
@@ -650,6 +656,7 @@ panel.addEventListener('click', async e => {
   else if (d.shape) { l.shape = d.shape; if (d.shape === 'film') l.borderColor = '#161616'; else if (d.shape === 'dia') l.borderColor = '#ece8de'; else if (FRAMES.has(d.shape) && l.borderColor === '#161616') l.borderColor = '#ffffff'; commit(); }
   else if (d.blend) { l.blend = d.blend; commit(); }
   else if (d.edge !== undefined) { l.edge = d.edge || undefined; if (d.edge === 'stamp' && !l.borderColor) l.borderColor = '#ffffff'; commit(); }
+  else if (d.keyline !== undefined) { l.keyline = d.keyline || undefined; commit(); }
   else if (d.edgesides) { l.edgeSides = d.edgesides; commit(); }
   else if (d.font) { l.font = d.font; commit(); }
   else if (d.tpreset) { textPreset(l, d.tpreset); commit(); }
@@ -715,7 +722,7 @@ function action(a, l) {
     case 'front': { const i = state.layers.indexOf(l); if (i < state.layers.length - 1) { state.layers.splice(i, 1); state.layers.splice(i + 1, 0, l); } commit(); toast('Eine Ebene nach vorn'); return; }
     case 'back': { const i = state.layers.indexOf(l); if (i > 0) { state.layers.splice(i, 1); state.layers.splice(i - 1, 0, l); } commit(); toast('Eine Ebene nach hinten'); return; }
     case 'dup': { const c = unlinked(clone(l)); c.id = newId(); c.x += 60; c.y += 60; c.locked = false; state.layers.splice(state.layers.indexOf(l) + 1, 0, c); ui.sel = c.id; commit(); return; }
-    case 'del': state.layers = state.layers.filter(x => x !== l); cache.delete(l.id); ui.sel = null; commit(); toast('Gelöscht – oben links rückgängig machen'); return;
+    case 'del': state.layers = state.layers.filter(x => x !== l); if (!state.layers.some(x => cacheKey(x) === cacheKey(l))) cache.delete(cacheKey(l)); ui.sel = null; commit(); toast('Gelöscht – oben links rückgängig machen'); return;
     case 'copy': ui.clip = clone(l.params); toast('Bearbeitung kopiert'); renderPanel(); return;
     case 'paste': if (ui.clip) { const keep = { heal: P.heal, brush: P.brush, masks: P.masks }; l.params = upgradeParams(clone(ui.clip)); Object.assign(l.params, keep); commit(); toast('Bearbeitung eingefügt'); } return;
     case 'applyAll': state.layers.filter(x => x.type === 'image' && x !== l).forEach(x => { const keep = { heal: x.params.heal, brush: x.params.brush, masks: x.params.masks }; x.params = clone(l.params); Object.assign(x.params, keep); }); commit(); toast('Auf alle Fotos übertragen'); return;

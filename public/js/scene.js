@@ -115,8 +115,37 @@ function paper() {
   x.lineWidth = .6; for (let i = 0; i < 70; i++) { const px = r() * 320, py = r() * 320, a = r() * Math.PI; x.strokeStyle = `rgba(90,70,40,${.05 + r() * .07})`; x.beginPath(); x.moveTo(px, py); x.quadraticCurveTo(px + Math.cos(a) * 8, py + Math.sin(a) * 8 + 3, px + Math.cos(a) * 18, py + Math.sin(a) * 18); x.stroke(); }
   return paperTex = c;
 }
+/* Papierstrukturen: einmal pro Größe erzeugt (halbe Auflösung), als Licht/Schatten über der Grundfarbe */
+const TEXTURES = new Set(['crumpled', 'kraft', 'cardboard', 'linen']);
+const texCache = new Map();
+function texture(kind, T, H) {
+  const key = kind + T + 'x' + H; if (texCache.has(key)) return texCache.get(key);
+  const w = Math.max(2, Math.round(T / 2)), h = Math.max(2, Math.round(H / 2)), c = mk(w, h), x = c.getContext('2d'), id = x.createImageData(w, h), d = id.data, r = seeded(kind.length * 31 + 7);
+  const hgt = new Float32Array(w * h);
+  if (kind === 'crumpled') {
+    // Knickfalten: viele zufällige Grate, Licht von oben links
+    for (let k = 0; k < Math.round(w * h / 9000) + 30; k++) {
+      const px = r() * w, py = r() * h, a = r() * Math.PI, nx = Math.cos(a), ny = Math.sin(a), wid = 14 + r() * 50, amp = (r() - .5) * 1.4, len = 80 + r() * 220;
+      const x0 = Math.max(0, Math.floor(px - len)), x1 = Math.min(w - 1, Math.ceil(px + len)), y0 = Math.max(0, Math.floor(py - len)), y1 = Math.min(h - 1, Math.ceil(py + len));
+      for (let y = y0; y <= y1; y++) for (let xx = x0; xx <= x1; xx++) { const dx = xx - px, dy = y - py, along = dx * ny - dy * nx, dist = Math.abs(dx * nx + dy * ny); if (dist > wid || Math.abs(along) > len) continue;
+        hgt[y * w + xx] += amp * (1 - dist / wid) * (1 - Math.abs(along) / len); }
+    }
+  } else for (let i = 0; i < hgt.length; i++) hgt[i] = (r() - .5) * .4;
+  for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++) {
+    const i = y * w + xx; let v;
+    if (kind === 'crumpled') { const gx = hgt[i] - hgt[i - 1 >= 0 ? i - 1 : i], gy = hgt[i] - hgt[i - w >= 0 ? i - w : i]; v = (gx + gy) * 1.3 + (r() - .5) * .05; }
+    else if (kind === 'kraft') v = (r() - .5) * .14 + Math.sin(xx * .9 + Math.sin(y * .05) * 3) * .02;
+    else if (kind === 'cardboard') v = Math.sin(xx / 7) * .05 + (r() - .5) * .1;
+    else v = ((xx % 4 < 1 ? 1 : 0) + (y % 4 < 1 ? 1 : 0)) * .05 - .04 + (r() - .5) * .05;
+    const a = Math.min(1, Math.abs(v)) * (kind === 'crumpled' ? .6 : 1), j = i * 4; d[j] = d[j + 1] = d[j + 2] = v > 0 ? 255 : 0; d[j + 3] = a * 255;
+  }
+  x.putImageData(id, 0, 0);
+  if (kind === 'kraft' || kind === 'cardboard') { x.lineWidth = 1; for (let k = 0; k < w * h / 1500; k++) { const px = r() * w, py = r() * h, a = r() * Math.PI, L = 4 + r() * 16; x.strokeStyle = `rgba(${r() < .5 ? '60,40,20' : '255,250,235'},${.12 + r() * .18})`; x.beginPath(); x.moveTo(px, py); x.lineTo(px + Math.cos(a) * L, py + Math.sin(a) * L); x.stroke(); } }
+  texCache.set(key, c); if (texCache.size > 8) texCache.delete(texCache.keys().next().value);
+  return c;
+}
 const lumHex = hex => { const n = parseInt(hex.slice(1), 16); return (.2126 * (n >> 16 & 255) + .7152 * (n >> 8 & 255) + .0722 * (n & 255)) / 255; };
-export const BG_PATTERNS = [['none', 'Keins'], ['paper', 'Papier'], ['grid', 'Raster'], ['dots', 'Punkte'], ['lines', 'Linien'], ['check', 'Karo'], ['grain', 'Körnung']];
+export const BG_PATTERNS = [['none', 'Keins'], ['paper', 'Papier'], ['crumpled', 'Knitterpapier'], ['kraft', 'Kraftpapier'], ['cardboard', 'Pappe'], ['linen', 'Leinen'], ['grid', 'Raster'], ['dots', 'Punkte'], ['lines', 'Linien'], ['check', 'Karo'], ['grain', 'Körnung']];
 function drawBg(c, T, H) {
   const bg = state.bg;
   if (bg.grad) { const g = bg.dir === 'v' ? c.createLinearGradient(0, 0, 0, H) : bg.dir === 'd' ? c.createLinearGradient(0, 0, T, H) : c.createLinearGradient(0, 0, T, 0); g.addColorStop(0, bg.c1); g.addColorStop(1, bg.c2); c.fillStyle = g; }
@@ -126,6 +155,7 @@ function drawBg(c, T, H) {
   const dark = lumHex(bg.c1) < .45, ink = dark ? 'rgba(255,255,255,.16)' : 'rgba(0,0,0,.11)';
   c.save();
   if (pat === 'paper') { c.fillStyle = c.createPattern(paper(), 'repeat'); c.fillRect(0, 0, T, H); }
+  else if (TEXTURES.has(pat)) c.drawImage(texture(pat, T, H), 0, 0, T, H);
   else if (pat === 'grain') { const r = seeded(3); c.fillStyle = ink; for (let i = 0; i < T * H / 900; i++) c.fillRect(r() * T, r() * H, 2, 2); }
   else if (pat === 'grid') { c.strokeStyle = ink; c.lineWidth = 2; c.beginPath(); for (let x = 54; x < T; x += 54) { c.moveTo(x, 0); c.lineTo(x, H); } for (let y = 54; y < H; y += 54) { c.moveTo(0, y); c.lineTo(T, y); } c.stroke(); }
   else if (pat === 'lines') { c.strokeStyle = ink; c.lineWidth = 2; c.beginPath(); for (let y = 90; y < H; y += 60) { c.moveTo(0, y); c.lineTo(T, y); } c.stroke(); }
@@ -148,7 +178,7 @@ export function drawScene(c, opts = {}) {
     if (l.blend && l.blend !== 'source-over') c.globalCompositeOperation = l.blend;
     if (l.type === 'image') drawImageLayer(c, l, opts); else if (l.type === 'text') drawTextLayer(c, l); else drawShapeLayer(c, l);
     c.restore();
-    if (l.type === 'image' && l.srcId && hasCut(l)) pend = l;
+    if (l.type === 'image' && l.srcId && hasCut(l) && !l.sticker) pend = l;
   }
   flush();
 }
@@ -171,7 +201,7 @@ function drawCut(c, l, opts) {
   c.restore();
 }
 /* verknüpfte Fenster eines Fotos teilen sich die Berechnung */
-export const cacheKey = l => l.grp ? 'g:' + l.grp : l.id;
+export const cacheKey = l => l.grp ? 'g:' + l.grp : 'd:' + (l.dupOf || l.id); // Wiederholungen eines Fotos teilen sich die Berechnung
 export function ensureCache(l) {
   const ck = cacheKey(l); let c = cache.get(ck); if (!c) { c = {}; cache.set(ck, c); }
   const src = sources.get(l.srcId); if (!src || !src.base) return null;
@@ -198,6 +228,7 @@ function drawImageLayer(c, l, opts) {
   if (!l.srcId) { if (!opts.procs && !opts.clean) drawPlaceholder(c, l, bx, clip, framed); return; }
   if (opts.procs) img = opts.procs.get(cacheKey(l));
   else { const ch = ensureCache(l); if (ch) img = ui.showOrig && l.id === ui.sel ? ch.orient : ch.proc; }
+  if (l.sticker && img && hasCut(l)) { drawSticker(c, l, bx, img); return; }
   if (framed) drawFrame(c, l, bx);
   else if (l.edge) drawEdge(c, l, bx);
   else if (bb > 0 || l.shadow) {
@@ -212,6 +243,16 @@ function drawImageLayer(c, l, opts) {
   else { c.fillStyle = 'rgba(128,128,128,.35)'; c.fillRect(-w / 2, -h / 2 + iy, w, h); }
   c.restore();
   if (l.shape === 'dia') { c.save(); c.strokeStyle = 'rgba(0,0,0,.18)'; c.lineWidth = ow * .006; c.strokeRect(-w / 2, -h / 2 + iy, w, h); c.restore(); }
+  if (l.keyline) { c.save(); c.strokeStyle = l.keyline; c.lineWidth = Math.max(2, Math.min(w, h) * .004); const o = (l.keylineGap || 0) * Math.min(w, h); c.strokeRect(-w / 2 - o, -h / 2 + iy - o, w + 2 * o, h + 2 * o); c.restore(); }
+}
+/* Sticker: nur das freigestellte Motiv mit weißem Rand und Schatten */
+function drawSticker(c, l, bx, img) {
+  const e = getCut(l, img), m = e.mask, { w, h, iy } = bx;
+  if (!e.outline) { const t = mk(m.width, m.height), tx = t.getContext('2d'); tx.drawImage(m, 0, 0); tx.globalCompositeOperation = 'source-in'; tx.fillStyle = l.borderColor || '#ffffff'; tx.fillRect(0, 0, t.width, t.height);
+    const o = mk(m.width, m.height), ox = o.getContext('2d'), R = Math.max(m.width, m.height) * .016; for (let k = 0; k < 16; k++) { const a = k / 16 * Math.PI * 2; ox.drawImage(t, Math.cos(a) * R, Math.sin(a) * R); } ox.drawImage(t, 0, 0); e.outline = o; }
+  const [sx, sy, sw, sh] = cropRect(m.width, m.height, l);
+  c.save(); c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = w * .03; c.shadowOffsetY = w * .012; c.drawImage(e.outline, sx, sy, sw, sh, -w / 2, -h / 2 + iy, w, h); c.restore();
+  const [ax, ay, aw, ah] = cropRect(e.img.width, e.img.height, l); c.imageSmoothingQuality = 'high'; c.drawImage(e.img, ax, ay, aw, ah, -w / 2, -h / 2 + iy, w, h);
 }
 /* leeres Vorlagen-Feld: antippen, um ein Foto einzusetzen */
 function drawPlaceholder(c, l, bx, clip, framed) {
@@ -266,8 +307,8 @@ export function textMetrics(l) {
     return { lines, widths, lh, ls: 0, pad, st: 0, cell, w: Math.max(...widths) + pad * 2, h: lines.length * lh + pad * 2 }; }
   mctx.font = fontStr(l); const lines = textOf(l).split('\n'), lh = l.size * (l.lineH || 1.16), ls = (l.spacing || 0) / 100 * l.size;
   const widths = lines.map(t => mctx.measureText(t || ' ').width + ls * Math.max(0, [...t].length - 1)), tw = Math.max(...widths);
-  const st = (l.stroke || 0) / 100 * l.size, pad = (l.bg !== 'none' ? l.size * .38 : l.size * .08) + st;
-  return { lines, widths, lh, ls, pad, st, w: tw + pad * 2, h: lines.length * lh + pad * 2 };
+  const st = (l.stroke || 0) / 100 * l.size, pad = (l.bg !== 'none' ? l.size * .38 : l.size * .08) + st, pinX = l.bg === 'pin' ? l.size * .75 : 0;
+  return { lines, widths, lh, ls, pad, st, pinX, w: tw + pad * 2 + pinX, h: lines.length * lh + pad * 2 };
 }
 const RANSOM_FONTS = [['Anton', 400], ['DM Serif Display', 400], ['Archivo Black', 400], ['Playfair Display', 600], ['Bebas Neue', 400], ['Space Mono', 700], ['Pacifico', 400], ['Permanent Marker', 400], ['Special Elite', 400]];
 const RANSOM_BG = ['#ffffff', '#f3e6c8', '#1d1d1d', '#e9d2d2', '#d9e4f2', '#f2c14e', '#c9dfc9'];
@@ -296,9 +337,15 @@ function drawLetters(c, l, m) {
 function drawTextLayer(c, l) {
   const m = textMetrics(l);
   if (LETTER_BG.has(l.bg)) { drawLetters(c, l, m); return; }
+  if (l.bg === 'pin') { // Orts-Pille mit Stecknadel
+    c.save(); c.shadowColor = 'rgba(0,0,0,.18)'; c.shadowBlur = l.size * .3; c.shadowOffsetY = l.size * .06; c.fillStyle = l.bgColor && l.bgColor !== '#111111' ? l.bgColor : '#ffffff';
+    roundPath(c, -m.w / 2, -m.h / 2, m.w, m.h, m.h / 2); c.fill(); c.restore();
+    const px = -m.w / 2 + m.pad * .55 + l.size * .3, py = 0, pr = l.size * .28; c.fillStyle = '#8a4bd8'; c.beginPath(); c.arc(px, py - pr * .25, pr, Math.PI * .85, Math.PI * 2.15); c.lineTo(px, py + pr * 1.15); c.closePath(); c.fill();
+    c.fillStyle = '#ffffff'; c.beginPath(); c.arc(px, py - pr * .25, pr * .38, 0, Math.PI * 2); c.fill();
+  }
   if (l.bg === 'solid' || l.bg === 'soft') { c.save(); c.globalAlpha *= l.bg === 'soft' ? .62 : 1; c.fillStyle = l.bgColor; roundPath(c, -m.w / 2, -m.h / 2, m.w, m.h, l.size * .28); c.fill(); c.restore(); }
   c.font = fontStr(l); c.textBaseline = 'middle'; c.textAlign = 'left';
-  const lineX = i => { const lw = m.widths[i]; return l.align === 'left' ? -m.w / 2 + m.pad : l.align === 'right' ? m.w / 2 - m.pad - lw : -lw / 2; };
+  const lineX = i => { const lw = m.widths[i]; return (l.align === 'left' ? -m.w / 2 + m.pad : l.align === 'right' ? m.w / 2 - m.pad - lw : -lw / 2) + (m.pinX || 0) / 2; };
   const lineY = i => -m.h / 2 + m.pad + m.lh * (i + .5) + l.size * .04;
   if (l.bg === 'band') { c.save(); c.fillStyle = l.bgColor; m.lines.forEach((t, i) => { const px = l.size * .22; roundPath(c, lineX(i) - px, lineY(i) - m.lh / 2 - l.size * .02, m.widths[i] + 2 * px, m.lh, l.size * .14); c.fill(); }); c.restore(); }
   const put = (fn, t, x, y) => { if (!m.ls) { c[fn](t, x, y); return; } for (const ch of t) { c[fn](ch, x, y); x += c.measureText(ch).width + m.ls; } };
@@ -313,7 +360,7 @@ function drawTextLayer(c, l) {
 
 /* ---------- Formen ---------- */
 export const SHAPES = [['rect', 'Rechteck'], ['round', 'Abgerundet'], ['circle', 'Kreis'], ['frame', 'Rahmen'], ['line', 'Linie'], ['arrow', 'Pfeil'], ['star', 'Stern'], ['heart', 'Herz'], ['sparkle', 'Funkeln'], ['blob', 'Klecks'], ['tape', 'Klebeband'], ['arch', 'Bogen'],
-  ['paper', 'Papierfetzen'], ['spiral', 'Spiralbindung'], ['clip', 'Büroklammer'], ['binder', 'Klammer'], ['laurel', 'Lorbeer'], ['scribble', 'Kritzel-Rahmen'], ['corners', 'Kritzel-Ecken'], ['scribbleArrow', 'Kritzel-Pfeil']];
+  ['paper', 'Papierfetzen'], ['lace', 'Spitzenrand'], ['starSticker', 'Glitzerstern'], ['leaves', 'Herbstblätter'], ['check', 'Häkchen'], ['spiral', 'Spiralbindung'], ['clip', 'Büroklammer'], ['binder', 'Klammer'], ['laurel', 'Lorbeer'], ['scribble', 'Kritzel-Rahmen'], ['corners', 'Kritzel-Ecken'], ['scribbleArrow', 'Kritzel-Pfeil']];
 /* handgezeichnete Linie mit leichtem Zittern */
 function wobble(c, pts, seed, amp) {
   const r = seeded(seed); c.beginPath();
@@ -322,6 +369,18 @@ function wobble(c, pts, seed, amp) {
 }
 function drawDecoShape(c, l, x, y, w, h, sw) {
   const k = l.kind;
+  if (k === 'lace') { // Papierspitze: Bögen mit Löchern an beiden Längsseiten
+    const n = Math.max(3, Math.round(h / (w * .22))), st = h / n, rr = st / 2; c.beginPath(); c.moveTo(x + rr, y);
+    for (let i = 0; i < n; i++) c.arc(x + rr * .9, y + st * (i + .5), rr, -Math.PI / 2, Math.PI / 2, true);
+    c.lineTo(x + w - rr, y + h); for (let i = n - 1; i >= 0; i--) c.arc(x + w - rr * .9, y + st * (i + .5), rr, Math.PI / 2, -Math.PI / 2, true); c.closePath(); c.fill();
+    c.save(); c.shadowColor = 'transparent'; c.globalCompositeOperation = 'destination-out'; for (let i = 0; i < n; i++) for (const xx of [x + rr * .9, x + w - rr * .9]) { c.beginPath(); c.arc(xx, y + st * (i + .5), rr * .28, 0, Math.PI * 2); c.fill(); } c.restore(); return true; }
+  if (k === 'starSticker') { const g = c.createLinearGradient(x, y, x + w, y + h); g.addColorStop(0, '#f7f3ea'); g.addColorStop(.45, '#b8b2a4'); g.addColorStop(.55, '#fffdf6'); g.addColorStop(1, '#9d978a');
+    shapePath(c, 'star', x, y, w, h); c.fillStyle = g; c.fill(); c.shadowColor = 'transparent'; c.lineWidth = Math.max(1, w * .04); c.strokeStyle = '#ffffff'; c.stroke(); return true; }
+  if (k === 'check') { c.fillStyle = l.fill; c.beginPath(); c.arc(0, 0, Math.min(w, h) / 2, 0, Math.PI * 2); c.fill(); c.shadowColor = 'transparent'; c.strokeStyle = '#ffffff'; c.lineWidth = Math.min(w, h) * .12;
+    c.beginPath(); c.moveTo(-w * .22, 0); c.lineTo(-w * .05, h * .18); c.lineTo(w * .24, -h * .17); c.stroke(); return true; }
+  if (k === 'leaves') { const r = seeded(l.id * 3 + 17), cols = ['#d9822b', '#c4541f', '#e8b04a', '#9c3d1c', '#d6a33d'];
+    for (let i = 0; i < 14; i++) { const px = x + r() * w, py = y + r() * h, s = Math.min(w, h) * (.035 + r() * .04); c.save(); c.translate(px, py); c.rotate(r() * Math.PI * 2); c.fillStyle = cols[i % 5];
+      c.beginPath(); c.moveTo(0, -s); c.quadraticCurveTo(s * .9, -s * .2, 0, s); c.quadraticCurveTo(-s * .9, -s * .2, 0, -s); c.fill(); c.restore(); } return true; }
   if (k === 'paper') { edgePath(c, x, y, w, h, l.id * 5 + 2, Math.min(w, h) * .05, 'all', 0, 'torn'); c.fill(); return true; }
   if (k === 'spiral') {
     const n = Math.max(3, Math.round(w / (h * .5))), step = w / n;

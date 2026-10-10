@@ -23,7 +23,7 @@ function partition(R, count, g, rnd) {
 const today = () => new Date().toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII', 'XIII', 'XIV', 'XV', 'XVI', 'XVII', 'XVIII', 'XIX', 'XX'];
 
-export const TPL_CATS = [['all', 'Alle'], ['pano', 'Panorama'], ['grid', 'Raster'], ['seam', 'Über die Naht'], ['paper', 'Papier & Notizbuch'], ['doodle', 'Kritzeleien'], ['analog', 'Analog'], ['edit', 'Editorial'], ['shape', 'Formen']];
+export const TPL_CATS = [['all', 'Alle'], ['pano', 'Panorama'], ['grid', 'Raster'], ['seam', 'Über die Naht'], ['collage', 'Collage'], ['paper', 'Papier & Notizbuch'], ['doodle', 'Kritzeleien'], ['analog', 'Analog'], ['edit', 'Editorial'], ['shape', 'Formen']];
 
 export const TEMPLATES = [
   /* ---------- Panorama ---------- */
@@ -177,8 +177,10 @@ export const TEMPLATES = [
       else for (let i = 0; i < n; i++) [[-.12, -.1, -9], [.1, .08, 7], [0, 0, -2]].forEach(([dx, dy, r]) => sl.push(C(i + .5 + dx, A * .45 + dy, .55, .55, { frame: 'polaroid', rot: r, shadow: true })));
       return { slots: sl, bg: { c1: '#ece6dc', pattern: 'paper' } };
     } },
-  { id: 'instax', cat: 'analog', name: 'Instax', desc: 'Kleine Sofortbilder im Hochformat.', vars: ['Reihe', 'Verstreut', 'Groß auf Dunkel'],
+  { id: 'instax', cat: 'analog', name: 'Instax', desc: 'Kleine Sofortbilder im Hochformat.', vars: ['Reihe', 'Verstreut', 'Groß auf Dunkel', 'Mit Notiz'],
     build(n, A, o) {
+      if (o.v === 3) { const sl = [], N = ['ein Schnappschuss vom\nersten Tag', 'der beste Kaffee', 'Sonne im Gesicht', 'bis bald, Meer', 'wir zwei', 'Lieblingsmoment'];
+        for (let i = 0; i < 2 * n; i++) sl.push(C(.28 + i * .5, A * .44, .44, .44 / .78, { frame: 'instax', borderColor: '#fbfaf6', caption: N[i % 6].replace('\n', ' '), shadow: true })); return { slots: sl, bg: { c1: '#ffffff' } }; }
       if (o.v === 2) { const sl = []; for (let i = 0; i < n; i++) sl.push(C(i + .5, A * .46, .68, .68 / .82, { frame: 'instax', borderColor: '#f4f2ee', rot: i % 2 ? 1.5 : -1, shadow: true })); return { slots: sl, bg: { c1: '#1b1b1d' } }; }
       const sl = [], c = 2 * n, r = seeded(3 + o.seed * 11);
       for (let i = 0; i < c; i++) sl.push(C((i + .5) * n / c + (o.v ? (r() - .5) * .15 : 0), A * (o.v ? .3 + r() * .4 : .46), .36, .46, { frame: 'instax', rot: o.v ? (r() - .5) * 16 : (i % 2 ? 2 : -2), shadow: true }));
@@ -349,9 +351,10 @@ export const TEMPLATES = [
       }
       return { slots: sl, deco, bg: { c1: ['#7a1712', '#e8dccb', '#1b1f2a'][o.v], pattern: 'paper' } };
     } },
-  { id: 'margin', cat: 'paper', name: 'Notizrand', desc: 'Papierstreifen mit Schreibschrift am Rand.', vars: ['Links', 'Rechts'],
+  { id: 'margin', cat: 'paper', name: 'Notizrand', desc: 'Papierstreifen mit Schreibschrift am Rand.', vars: ['Links', 'Rechts', 'Spitzenrand'],
     build(n, A, o) {
-      const sl = [], deco = [], L = !o.v;
+      const sl = [], deco = [], L = o.v !== 1;
+      if (o.v === 2) { for (let i = 0; i < n; i++) { sl.push(S(i + .2, 0, .8, A)); deco.push(SH('lace', i + .11, A / 2, .22, A + .1, { shadow: true }), TX('m' + i, i + .1, A / 2, ['Ein Tag im Leben', 'Kleine Fluchten', 'Nur wir zwei', 'Irgendwo am Meer'][i % 4], { font: 'Great Vibes', size: .065, color: '#3a3226', rot: -90 }), SH('clip', i + .16, A * .1, .05, .13, { rot: 10 })); } return { slots: sl, deco, bg: { c1: '#f4f1ea' } }; }
       for (let i = 0; i < n; i++) {
         sl.push(S(i + (L ? .2 : 0), 0, .8, A));
         const px = i + (L ? .1 : .9);
@@ -463,14 +466,135 @@ export const TEMPLATES = [
       deco.push(TX('st', .48, A * .36, 'Langsame Tage', { font: 'Great Vibes', size: .13, color: '#f4e7b4', rot: -7, shadow: true }), TX('ss', .36, A * .44, 'AUF EINER INSEL', { font: 'Playfair Display', size: .032, color: '#f4e7b4', spacing: 4, shadow: true }));
       return { slots: sl, deco };
     } },
-  { id: 'filmV', cat: 'analog', name: 'Filmstreifen hoch', desc: 'Kleinbildstreifen im Hochformat.', vars: ['Großes Bild', 'Drei Bilder'],
+  { id: 'filmV', cat: 'analog', name: 'Filmstreifen hoch', desc: 'Kleinbildstreifen im Hochformat.', vars: ['Großes Bild', 'Drei Bilder', 'Randlos'],
     build(n, A, o) {
       const sl = [], F = { frame: 'filmv', borderColor: '#161616' };
+      if (o.v === 2) { for (let i = 0; i < n; i++) sl.push(C(i + .5, A / 2, 1 / 1.3, A / 1.05, F)); return { slots: sl }; }
       for (let i = 0; i < n; i++) {
         if (!o.v) sl.push(C(i + .5, A / 2, .6, A * .88, { ...F, rot: i % 2 ? 1.5 : -1, shadow: true }));
         else { const h = .33, w = h * 1.5 > .58 ? .58 : h * 1.5, oh = h * 1.05; for (let k = 0; k < 3; k++) sl.push(C(i + .5, A / 2 + (k - 1) * oh, w, h, F)); }
       }
       return { slots: sl, bg: { c1: o.v ? '#e9e4da' : '#efece6', pattern: 'paper' } };
+    } },
+
+  /* ---------- Collage ---------- */
+  { id: 'party', cat: 'collage', name: 'Party-Collage', desc: 'Fotostreifen, Sofortbild, Sticker und Glitzersterne.', vars: ['Nacht', 'Hell'],
+    build(n, A, o) {
+      const sl = [], deco = [], dark = !o.v;
+      for (let i = 0; i < n; i++) {
+        deco.push(SH('paper', i + .3, A * .5, .6, A * 1.02, { fill: dark ? '#1b1b1b' : '#efe9de', rot: -2, under: true }));
+        for (let k = 0; k < 3; k++) sl.push(S(i + .02, .04 + k * (A * .31), .5, A * .29, { look: 'trix', border: .008, borderColor: '#151515' }));
+        sl.push(C(i + .72, A * .36, .44, .44, { frame: 'polaroid', rot: 6, shadow: true }));
+        sl.push(C(i + .7, A * .76, .56, A * .4, { sticker: true, border: .02, borderColor: '#ffffff', shadow: true, rot: -3 }));
+        [[.55, .12], [.38, .64], [.93, .55], [.6, .9]].forEach(([fx, fy], k) => deco.push(SH('starSticker', i + fx, A * fy, .07, .067, { rot: k * 17 })));
+        if (i === 0) deco.push(TX('pt', .72, A * .07, 'Alles Liebe\nzum Geburtstag!', { font: 'Great Vibes', size: .06, color: dark ? '#ffffff' : '#2b2b2b', rot: -8, lineH: 1 }));
+      }
+      return { slots: sl, deco, bg: { c1: dark ? '#0f0f10' : '#ffffff', pattern: dark ? 'none' : 'crumpled' } };
+    } },
+  { id: 'spots', cat: 'collage', name: 'Orte-Collage', desc: 'Überlappende Fotos mit 📍-Ortsmarken.', vars: ['Hell', 'Herbst'],
+    build(n, A, o) {
+      const sl = [], deco = [], P = ['Gemütliches Café', 'Kürbisfeld', 'Lieblingsplatz', 'Wochenmarkt', 'Am Hafen', 'Altstadt'], B = { border: .012, borderColor: '#ffffff' };
+      for (let i = 0; i < n; i++) {
+        sl.push(S(i + .07, .1, .42, A * .32, B), S(i + .5, .04, .44, A * .3, B), S(i + .4, A * .32, .46, A * .34, { ...B, shadow: true }), S(i + .1, A * .4, .4, A * .32, B), S(i + .52, A * .64, .42, A * .32, B), S(i + .06, A * .73, .44, A * .23, B));
+        deco.push(TX('p' + i, i + .27, A * .2, P[(i * 2) % 6], { font: 'Instrument Sans', size: .022, color: '#1d1d1d', bg: 'pin' }), TX('q' + i, i + .7, A * .58, P[(i * 2 + 1) % 6], { font: 'Instrument Sans', size: .022, color: '#1d1d1d', bg: 'pin' }));
+      }
+      return { slots: sl, deco, bg: { c1: o.v ? '#f3ece2' : '#ffffff', pattern: o.v ? 'kraft' : 'none' } };
+    } },
+  { id: 'overlapCols', cat: 'collage', name: 'Überlappende Spalten', desc: 'Zwei Spalten, Fotos schieben sich übereinander.', vars: ['Locker', 'Dicht'],
+    build(n, A, o) {
+      const sl = [], B = { border: .01, borderColor: '#ffffff', shadow: !!o.v };
+      for (let i = 0; i < n; i++) {
+        const k = o.v ? 4 : 3, h = (A - .1) / k + .08;
+        for (let j = 0; j < k; j++) { sl.push(S(i + .06 + (j % 2) * .04, .05 + j * (A - .1 - h) / (k - 1), .44, h, B)); sl.push(S(i + .5 - (j % 2) * .04, .05 + (j + .5) * (A - .1 - h) / (k - .5), .44, h * .9, B)); }
+      }
+      return { slots: sl, bg: { c1: '#ffffff' } };
+    } },
+  { id: 'stack', cat: 'collage', name: 'Stapel auf Foto', desc: 'Randloses Foto, darauf versetzte Abzüge.', vars: ['Drei', 'Zwei groß'],
+    build(n, A, o) {
+      const sl = [], B = { border: .01, borderColor: '#ffffff', shadow: true };
+      for (let i = 0; i < n; i++) {
+        sl.push(S(i, 0, 1, A));
+        if (!o.v) [[.44, .2], [.58, .5], [.44, .8]].forEach(([fx, fy]) => sl.push(C(i + fx, A * fy, .44, A * .28, B)));
+        else [[.4, .3], [.62, .7]].forEach(([fx, fy], k) => sl.push(C(i + fx, A * fy, .56, A * .38, { ...B, rot: k ? 2 : -2 })));
+      }
+      return { slots: sl };
+    } },
+  { id: 'tornReveal', cat: 'paper', name: 'Riss-Übergang', desc: 'Ein gerissener Rand gibt das nächste Foto frei.', vars: ['Rechts', 'Mit Rissspalte'],
+    build(n, A, o) {
+      const sl = [];
+      for (let i = 0; i < n; i++) {
+        sl.push(S(i + .7, 0, .32, A));
+        sl.push(S(i - .01, 0, .9, A, { edge: 'torn', edgeSides: 'r', shadow: true }));
+        if (o.v) sl.push(C(i + .9, A * .3, .34, A * .3, { edge: 'torn', shadow: true, rot: 3 }), C(i + .92, A * .72, .32, A * .3, { edge: 'torn', shadow: true, rot: -2 }));
+      }
+      return { slots: sl };
+    } },
+  { id: 'postedDeleted', cat: 'grid', name: 'Gepostet vs. gelöscht', desc: 'Das eine Bild – und all die anderen.', fill: 'repeat', gap: .006, vars: ['Raster', 'Groß'],
+    build(n, A, o) {
+      const sl = [], deco = [], cols = 3, rows = o.v ? 6 : 9, g = o.g, cw = (.5 - g * (cols + 1)) / cols, ch = (A - g * (rows + 1)) / rows;
+      for (let i = 0; i < n; i++) {
+        sl.push(S(i, 0, .5, A));
+        for (let r2 = 0; r2 < rows; r2++) for (let c = 0; c < cols; c++) { const x = i + .5 + g + c * (cw + g), y = g + r2 * (ch + g); sl.push(S(x, y, cw, ch)); deco.push(SH('check', x + cw - .022, y + ch - .022, .028, .028, {})); }
+        deco.push(TX('pp' + i, i + .25, A * .52, 'gepostet', { font: 'Instrument Sans', size: .028, color: '#ffffff', shadow: true }), TX('pd' + i, i + .75, A * .52, 'gelöscht', { font: 'Instrument Sans', size: .028, color: '#ffffff', shadow: true }));
+      }
+      return { slots: sl, deco, bg: { c1: '#ffffff' } };
+    } },
+
+  /* ---------- weitere Editorial ---------- */
+  { id: 'titleCenter', cat: 'edit', name: 'Titel mittig', desc: 'Kleiner, edler Titel in der Bildmitte.', vars: ['Erinnerungen', 'Mit Rahmenlinie', 'Mit Untertitel'],
+    build(n, A, o) {
+      const sl = [], deco = [];
+      for (let i = 0; i < n; i++) { sl.push(S(i, 0, 1, A)); if (o.v === 1) deco.push(SH('frame', i + .5, A / 2, .9, A - .1, { fill: '#ffffff', sw: 3 })); }
+      if (o.v === 2) deco.push(TX('t1', .5, A * .44, 'Herbstbilder', { font: 'Playfair Display', size: .055, color: '#ffffff', shadow: true }), TX('t2', .5, A * .48, 'AUFGENOMMEN AUF FILM', { font: 'Instrument Sans', size: .014, color: '#ffffff', spacing: 12, shadow: true }));
+      else deco.push(TX('t1', .5, A * .43, 'HERBST', { font: 'Instrument Sans', size: .016, color: '#ffffff', spacing: 30, shadow: true }), TX('t2', .5, A * .47, 'ERINNERUNGEN', { font: 'DM Serif Display', size: .06, color: '#ffffff', spacing: 2, shadow: true }));
+      return { slots: sl, deco };
+    } },
+  { id: 'framePeek', cat: 'seam', name: 'Rand mit Vorschau', desc: 'Weißer Rand, das nächste Foto lugt über die Naht.', vars: ['Mit Titel', 'Ohne Titel'],
+    build(n, A, o) {
+      const sl = [], deco = [];
+      for (let i = 0; i < n; i++) sl.push(i ? S(i - .14, .1, .9, A - .2, { shadow: true }) : S(.04, .04, .82, A - .08));
+      if (!o.v) deco.push(TX('t1', .45, A * .42, 'Herbstbilder', { font: 'Playfair Display', size: .05, color: '#ffffff', shadow: true }), TX('t2', .45, A * .46, 'AUFGENOMMEN AUF FILM', { font: 'Instrument Sans', size: .013, color: '#ffffff', spacing: 12, shadow: true }));
+      return { slots: sl, deco, bg: { c1: '#ffffff' } };
+    } },
+  { id: 'keyline', cat: 'edit', name: 'Feine Linie', desc: 'Viel Weiß, Foto mit Haarlinie.', vars: ['Schwarz', 'Abgesetzt'],
+    build(n, A, o) {
+      const sl = []; for (let i = 0; i < n; i++) sl.push(C(i + .5, A / 2, .84, A - .2, { keyline: '#111111', keylineGap: o.v ? .02 : 0 }));
+      return { slots: sl, bg: { c1: '#fbfbfa' } };
+    } },
+  { id: 'handCaption', cat: 'edit', name: 'Handnotiz', desc: 'Randloses Foto mit handschriftlicher Zeile.', vars: ['Unten', 'Oben'],
+    build(n, A, o) {
+      const sl = [], deco = [], N = ['Hamburg, auf 35mm', 'Sonntagmorgen', 'irgendwo im Norden', 'Licht um halb acht', 'der Weg nach Hause'];
+      for (let i = 0; i < n; i++) { sl.push(S(i, 0, 1, A)); deco.push(TX('h' + i, i + .5, o.v ? A * .08 : A * .92, N[i % 5], { font: 'Caveat', size: .05, color: '#ffffff', shadow: true })); }
+      return { slots: sl, deco };
+    } },
+  { id: 'bigWord', cat: 'edit', name: 'Großes Wort', desc: 'Foto im Foto, darüber ein großes Wort.', vars: ['okt🌼ber', 'SOMMER', 'hallo'],
+    build(n, A, o) {
+      const sl = [], deco = [];
+      for (let i = 0; i < n; i++) { sl.push(S(i, 0, 1, A)); sl.push(C(i + .5, A * .5, .7, A * .76)); }
+      deco.push(TX('w', .5, A * .52, ['okt🌼ber', 'SOMMER', 'hallo'][o.v], { font: o.v === 1 ? 'Anton' : 'DM Serif Display', size: .2, color: '#f6efdc', shadow: true, spacing: o.v === 1 ? 4 : 0 }));
+      return { slots: sl, deco };
+    } },
+  { id: 'travelFrame', cat: 'edit', name: 'Reise-Rahmen', desc: 'Schmaler Rand, Ort und Bildnummer.', vars: ['Weiß', 'Creme'],
+    build(n, A, o) {
+      const sl = [], deco = [], ink = '#3a3226';
+      for (let i = 0; i < n; i++) {
+        sl.push(S(i + .025, .025, .95, A - .09));
+        deco.push(TX('o' + i, i + .14, A - .032, ['Rom, 2026', 'Lissabon', 'Kopenhagen', 'Wien', 'Paris'][i % 5], { font: 'Caveat', size: .03, color: ink }), TX('n' + i, i + .93, A - .032, String(i + 1).padStart(2, '0'), { font: 'Special Elite', size: .022, color: ink }));
+      }
+      return { slots: sl, deco, bg: { c1: o.v ? '#efe8da' : '#ffffff', pattern: o.v ? 'paper' : 'none' } };
+    } },
+  { id: 'boothOnPhoto', cat: 'analog', name: 'Fotostreifen auf Foto', desc: 'Schwarz-weißer Fotostreifen auf einem Stimmungsbild.', vars: ['Mit Blättern', 'Ohne'],
+    build(n, A, o) {
+      const sl = [], deco = [];
+      for (let i = 0; i < n; i++) {
+        sl.push(S(i, 0, 1, A));
+        const cx = i + .5, rot = i % 2 ? 2 : -2, pw = .36, ph = pw * .8, sh = 4 * ph + 3 * .015 + .06;
+        deco.push(SH('rect', cx, A / 2, pw + .05, sh, { fill: '#111111', rot, shadow: true, after: sl.length - 1 }));
+        for (let k = 0; k < 4; k++) { const [x, y] = rotPt(cx, A / 2, cx, A / 2 - sh / 2 + .03 + ph / 2 + k * (ph + .015), rot); sl.push(C(x, y, pw, ph, { rot, look: 'trix' })); }
+        if (!o.v) deco.push(SH('leaves', i + .5, A / 2, .95, A * .9, {}));
+        deco.push(TX('b' + i, i + .78, A * .74, ['Herbst\nromantisieren,\nTag 1', 'kleine\nPause', 'mit dir'][i % 3], { font: 'Caveat', size: .032, color: '#ffffff', rot: -8, shadow: true, lineH: 1 }));
+      }
+      return { slots: sl, deco };
     } },
 
   /* ---------- Formen ---------- */
@@ -559,7 +683,7 @@ export function tplSVG(id, v = 0, n = 3) {
 }
 
 /* ---------- Anwenden ---------- */
-export const defaultTpl = (kind, v = 0) => ({ kind, v, gap: byId[kind].gap ?? .025, rad: 0, shadow: null, seed: 0, fill: 'ph' });
+export const defaultTpl = (kind, v = 0) => ({ kind, v, gap: byId[kind].gap ?? .025, rad: 0, shadow: null, seed: 0, fill: byId[kind].fill || 'ph' });
 export function applyTemplate(kind, v = 0) {
   if (!byId[kind]) return false;
   const keep = state.tpl && state.tpl.kind === kind ? state.tpl : null;
@@ -604,8 +728,10 @@ export function layout(fitSlides) {
   const rest = photos.filter(p => !slotLayers.includes(p)); rest.forEach(p => { p.hidden = true; delete p.slot; });
   layout.hiddenCount = rest.length;
   if (L.bg) { state.bg.c1 = L.bg.c1; state.bg.grad = false; state.bg.pattern = L.bg.pattern || 'none'; }
-  state.layers = [...deco.filter(d => d.under), ...slotLayers, ...rest, ...others, ...deco.filter(d => !d.under)];
-  deco.forEach(d => delete d.under);
+  // Deko mit „after“ liegt direkt über einem bestimmten Feld (z. B. Fotostreifen-Hintergrund über dem Stimmungsbild)
+  const mid = []; slotLayers.forEach((sl0, j) => { mid.push(sl0); deco.filter(d => d.after === j).forEach(d => mid.push(d)); });
+  state.layers = [...deco.filter(d => d.under), ...mid, ...rest, ...others, ...deco.filter(d => !d.under && d.after == null)];
+  deco.forEach(d => { delete d.under; delete d.after; });
   relink();
   if (ui.sel && !state.layers.some(l => l.id === ui.sel)) ui.sel = null;
 }
@@ -619,6 +745,10 @@ function place(l, s, j, W, t, gk) {
   l.border = (s.border || 0) * W; l.borderColor = s.borderColor || '#ffffff'; l.edge = s.edge; l.edgeSides = s.edgeSides;
   l.shadow = t.shadow == null ? !!s.shadow : t.shadow;
   l.opacity = 1; l.blend = 'source-over'; l.slot = j; l.tplKind = t.kind; l.hidden = false;
+  l.caption = s.caption || ''; l.keyline = s.keyline; l.keylineGap = s.keylineGap; l.sticker = !!s.sticker;
+  // Vorlagen-Look (z. B. S/W im Fotostreifen) nur setzen, wenn das Foto noch keinen eigenen Look hat
+  if (l.params) { if (l.tplLook && l.params.look === l.tplLook && l.tplLook !== s.look) { l.params.look = 'none'; delete l.tplLook; }
+    if (s.look && l.params.look === 'none') { l.params.look = s.look; l.tplLook = s.look; } }
   if (s.pano) { l.pane = { R: s.pano.R, S: [s.x, s.y, s.w, s.h] }; if (l.srcId) { l.grp = gk + ':' + (l.dupOf || l.id); } computeBox(l); }
   else { delete l.pane; delete l.grp; delete l.crop.box; }
 }
@@ -631,7 +761,7 @@ function makeDeco(d, old, W, kind) {
   } else {
     l = newShapeLayer(d.kind, d.x * W, d.y * W); Object.assign(l, { w: d.w * W, h: d.h * W, rot: d.rot || 0, shadow: !!d.shadow }); if (d.fill) l.fill = d.fill; if (d.sw) l.sw = d.sw; if (d.outline) l.outline = true;
   }
-  l.tplKey = kind + ':' + (d.key || d.kind + ':' + d.x.toFixed(3) + ':' + d.y.toFixed(3)); l.under = !!d.under;
+  l.tplKey = kind + ':' + (d.key || d.kind + ':' + d.x.toFixed(3) + ':' + d.y.toFixed(3)); l.under = !!d.under; if (d.after != null) l.after = d.after;
   return l;
 }
 /* Fenster und Wiederholungen eines Fotos teilen sich dieselben Bearbeitungs-Parameter */
