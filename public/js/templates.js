@@ -23,18 +23,58 @@ function partition(R, count, g, rnd) {
 const today = () => new Date().toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII', 'XIII', 'XIV', 'XV', 'XVI', 'XVII', 'XVIII', 'XIX', 'XX'];
 
+/* ---------- Abwechslung über die Slides ---------- */
+/* Seitenmuster je Slide: Slide 1 folgt der gewählten Variante, danach wechselnd – nie zweimal gleich hintereinander */
+function pager(n, o, k) {
+  if (!o.mix || k < 2) return () => 0;
+  const r = seeded(91 + (o.seed || 0) * 13 + k * 7), seq = [];
+  for (let i = 0; i < n; i++) { let v = i === 0 ? 0 : Math.floor(r() * k); if (i && v === seq[i - 1]) v = (v + 1) % k; seq.push(v); }
+  return i => seq[i] || 0;
+}
+/* Bibliothek einzelner Seiten-Layouts (Koordinaten einer Slide) */
+const PAGES = {
+  full: (i, A, st) => [S(i, 0, 1, A, st.full)],
+  margin: (i, A, st) => [C(i + .5, A / 2, .84, A * .84, st.card)],
+  two: (i, A, st) => { const h = (A - .24) / 2; return [S(i + .08, .08, .84, h, st.card), S(i + .08, .16 + h, .84, h, st.card)]; },
+  twoTall: (i, A, st) => [S(i + .06, .1, .42, A - .2, st.card), S(i + .52, .1, .42, A - .2, st.card)],
+  pip: (i, A, st) => [S(i, 0, 1, A, st.full), C(i + .63, A * .68, .46, A * .4, { ...st.card, border: .012, borderColor: '#ffffff', shadow: true })],
+  trio: (i, A, st) => { const h = (A - .18) / 2; return [S(i + .06, .06, .5, A - .12, st.card), S(i + .6, .06, .34, h, st.card), S(i + .6, .12 + h, .34, h, st.card)]; },
+  small: (i, A, st) => [C(i + .5, A * .46, .5, .62, st.card)],
+  offset: (i, A, st) => [S(i + .08, .1, .6, A * .66, st.card), S(i + .58, A * .62, .34, A * .3, st.card)],
+  grid4: (i, A, st) => grid(i + .06, .06, .88, A - .12, 2, 2, .03, st.card),
+  topTwo: (i, A, st) => { const t = A * .56; return [S(i + .06, .06, .88, t, st.card), S(i + .06, t + .1, .42, A - t - .16, st.card), S(i + .52, t + .1, .42, A - t - .16, st.card)]; },
+  tilt: (i, A, st) => [C(i + .5, A * .46, .66, .66, { frame: 'polaroid', rot: i % 2 ? 4 : -4, shadow: true })],
+  diag: (i, A, st) => [C(i + .38, A * .33, .6, A * .42, { ...st.card, shadow: true, rot: -2 }), C(i + .62, A * .68, .6, A * .42, { ...st.card, shadow: true, rot: 2 })]
+};
+function pages(n, A, o, from, kinds, st = {}) {
+  const P = pager(n, o, kinds.length), out = [], sty = { full: {}, card: {}, ...st };
+  for (let i = from; i < n; i++) out.push(...PAGES[kinds[P(i)]](i, A, sty));
+  return out;
+}
+/* Allgemeine Abwechslung: einzelne Slides spiegeln (nur Felder, die ganz auf der Slide liegen) */
+export function vary(L, n, o, T) {
+  if (!o.mix || T.noMirror) return L;
+  const P = pager(n, { ...o, seed: (o.seed || 0) + 5 }, 2);
+  for (let i = 1; i < n; i++) {
+    if (P(i) !== 1) continue;
+    for (const s of L.slots) { if (s.pano || s.x < i - 1e-6 || s.x + s.w > i + 1 + 1e-6) continue; s.x = 2 * i + 1 - (s.x + s.w); if (s.rot) s.rot = -s.rot; if (s.edgeSides) s.edgeSides = s.edgeSides.replace(/[lr]/g, c => c === 'l' ? 'r' : 'l'); }
+    for (const d of L.deco || []) { if (d.x < i || d.x > i + 1) continue; d.x = 2 * i + 1 - d.x; if (d.rot && Math.abs(d.rot) !== 90) d.rot = -d.rot; }
+  }
+  return L;
+}
+
 export const TPL_CATS = [['all', 'Alle'], ['pano', 'Panorama'], ['grid', 'Raster'], ['seam', 'Über die Naht'], ['collage', 'Collage'], ['paper', 'Papier & Notizbuch'], ['doodle', 'Kritzeleien'], ['analog', 'Analog'], ['edit', 'Editorial'], ['shape', 'Formen']];
 
 export const TEMPLATES = [
   /* ---------- Panorama ---------- */
-  { id: 'pano', cat: 'pano', name: 'Panorama', desc: 'Ein Foto läuft über alle Slides.', vars: ['Randlos', 'Mit Rand', 'Band', 'Abzug'],
+  { id: 'pano', noMirror: true, cat: 'pano', name: 'Panorama', desc: 'Ein Foto läuft über alle Slides.', vars: ['Randlos', 'Mit Rand', 'Band', 'Abzug'],
     build(n, A, o) {
       if (o.v === 1) { const b = Math.max(.045, o.g * 1.6); return { slots: [S(b, b, n - 2 * b, A - 2 * b)], bg: { c1: '#ffffff' } }; }
       if (o.v === 2) return { slots: [S(0, A * .2, n, A * .6)], bg: { c1: '#f4efe6' } };
       if (o.v === 3) return { slots: [S(.1, A * .15, n - .2, A * .7, { rot: -1.2, border: .025, shadow: true })], bg: { c1: '#e8dcc8', pattern: 'paper' } };
       return { slots: [S(0, 0, n, A)] };
     } },
-  { id: 'panoWin', cat: 'pano', name: 'Panorama-Fenster', desc: 'Ein Foto, sichtbar durch viele Rahmen.', gap: .03, vars: ['Raster', 'Streifen', 'Kreise', 'Bögen', 'Mosaik'],
+  { id: 'panoWin', noMirror: true, cat: 'pano', name: 'Panorama-Fenster', desc: 'Ein Foto, sichtbar durch viele Rahmen.', gap: .03, vars: ['Raster', 'Streifen', 'Kreise', 'Bögen', 'Mosaik'],
     build(n, A, o) {
       const g = o.g, P = { k: 'w', R: [0, 0, n, A] }, sl = [];
       if (o.v === 0) for (let i = 0; i < n; i++) sl.push(...grid(i + g, g, 1 - 2 * g, A - 2 * g, 2, 2, g, { pano: P }));
@@ -44,7 +84,7 @@ export const TEMPLATES = [
       else partition([g, g, n - 2 * g, A - 2 * g], n * 3, g, seeded(5 + o.seed * 13)).forEach(r => sl.push(S(...r, { pano: P })));
       return { slots: sl, bg: { c1: o.v === 1 ? '#111111' : '#ffffff' } };
     } },
-  { id: 'panoCards', cat: 'pano', name: 'Panorama + Karten', desc: 'Hintergrund-Panorama, weitere Fotos als Karten auf den Nähten.', vars: ['Sofortbilder', 'Karten', 'Kreise'],
+  { id: 'panoCards', noMirror: true, cat: 'pano', name: 'Panorama + Karten', desc: 'Hintergrund-Panorama, weitere Fotos als Karten auf den Nähten.', vars: ['Sofortbilder', 'Karten', 'Kreise'],
     build(n, A, o) {
       const sl = [S(0, 0, n, A)];
       seams(n).forEach((x, i) => {
@@ -54,7 +94,7 @@ export const TEMPLATES = [
       });
       return { slots: sl };
     } },
-  { id: 'panoSplit', cat: 'pano', name: 'Panorama + Reihe', desc: 'Breites Panorama, darunter Einzelbilder.', gap: .025, vars: ['Panorama oben', 'Panorama unten', 'Mit Kreisen'],
+  { id: 'panoSplit', noMirror: true, cat: 'pano', name: 'Panorama + Reihe', desc: 'Breites Panorama, darunter Einzelbilder.', gap: .025, vars: ['Panorama oben', 'Panorama unten', 'Mit Kreisen'],
     build(n, A, o) {
       const g = o.g, sl = [];
       if (o.v === 2) { sl.push(S(0, 0, n, A * .64)); for (let i = 0; i < n; i++) sl.push(C(i + .5, A * .64, .44, .44, { shape: 'circle', border: .02, shadow: true })); return { slots: sl, bg: { c1: '#f4efe6' } }; }
@@ -63,7 +103,7 @@ export const TEMPLATES = [
       for (let i = 0; i < n; i++) sl.push(S(i + g, top ? ph + g : g, 1 - 2 * g, A - ph - 2 * g));
       return { slots: sl, bg: { c1: '#ffffff' } };
     } },
-  { id: 'spread', cat: 'pano', name: 'Doppelseite', desc: 'Je ein Foto über zwei Slides.', gap: .03, vars: ['Randlos', 'Mit Rand', 'Mit Fuge'],
+  { id: 'spread', noMirror: true, cat: 'pano', name: 'Doppelseite', desc: 'Je ein Foto über zwei Slides.', gap: .03, vars: ['Randlos', 'Mit Rand', 'Mit Fuge'],
     build(n, A, o) {
       const g = o.g, sl = [];
       for (let i = 0; i < n; i += 2) {
@@ -76,22 +116,22 @@ export const TEMPLATES = [
     } },
 
   /* ---------- Raster ---------- */
-  { id: 'grid', cat: 'grid', name: 'Raster', desc: 'Gleichmäßige Felder auf jeder Slide.', gap: .025, vars: ['2×2', '3×3', '1×2', '2×1', '3×2', '2×3', '1×3'],
+  { id: 'grid', cat: 'grid', name: 'Raster', desc: 'Felder auf jeder Slide – jede Slide anders aufgeteilt.', gap: .025, vars: ['2×2', '3×3', '1×2', '2×1', '3×2', '2×3', '1×3'],
     build(n, A, o) {
-      const [c, r] = [[2, 2], [3, 3], [1, 2], [2, 1], [3, 2], [2, 3], [1, 3]][o.v] || [2, 2], g = o.g, sl = [];
-      for (let i = 0; i < n; i++) sl.push(...grid(i + g, g, 1 - 2 * g, A - 2 * g, c, r, g));
+      const V = [[2, 2], [3, 3], [1, 2], [2, 1], [3, 2], [2, 3], [1, 3]], g = o.g, sl = [], P = pager(n, o, 4), alt = [0, 2, 3, 5];
+      for (let i = 0; i < n; i++) { const [c, r] = V[(o.v + alt[P(i)]) % 7]; sl.push(...grid(i + g, g, 1 - 2 * g, A - 2 * g, c, r, g)); }
       return { slots: sl, bg: { c1: '#ffffff' } };
     } },
-  { id: 'mosaic', cat: 'grid', name: 'Mosaik', desc: 'Freie Aufteilung, Felder laufen über die Nähte.', gap: .022, vars: ['Mix 1', 'Mix 2', 'Mix 3', 'Mix 4'],
+  { id: 'mosaic', noMirror: true, cat: 'grid', name: 'Mosaik', desc: 'Freie Aufteilung, Felder laufen über die Nähte.', gap: .022, vars: ['Mix 1', 'Mix 2', 'Mix 3', 'Mix 4'],
     build(n, A, o) {
       const cnt = Math.min(n * 5, Math.max(o.k, n * 2)), g = o.g;
       return { slots: partition([g, g, n - 2 * g, A - 2 * g], cnt, g, seeded(17 + o.v * 31 + o.seed * 7)).map(r => S(...r)), bg: { c1: '#ffffff' } };
     } },
-  { id: 'feature', cat: 'grid', name: 'Groß + zwei', desc: 'Ein Hauptbild und zwei kleine pro Slide.', gap: .025, vars: ['Groß links', 'Groß rechts', 'Groß oben', 'Abwechselnd'],
+  { id: 'feature', cat: 'grid', name: 'Groß + zwei', desc: 'Ein Hauptbild und zwei kleine – Anordnung wechselt.', gap: .025, vars: ['Groß links', 'Groß rechts', 'Groß oben', 'Abwechselnd'],
     build(n, A, o) {
-      const g = o.g, sl = [];
+      const g = o.g, sl = [], P = pager(n, o, 3);
       for (let i = 0; i < n; i++) {
-        const x = i + g, y = g, w = 1 - 2 * g, h = A - 2 * g, v = o.v === 3 ? i % 2 : o.v;
+        const x = i + g, y = g, w = 1 - 2 * g, h = A - 2 * g, v = o.v === 3 ? i % 2 : (o.v + P(i)) % 3;
         if (v === 2) { const bh = (h - g) * .6, sw = (w - g) / 2; sl.push(S(x, y, w, bh), S(x, y + bh + g, sw, h - bh - g), S(x + sw + g, y + bh + g, sw, h - bh - g)); }
         else { const bw = (w - g) * .62, sw = w - bw - g, sh = (h - g) / 2, bx = v === 0 ? x : x + sw + g, sx = v === 0 ? x + bw + g : x; sl.push(S(bx, y, bw, h), S(sx, y, sw, sh), S(sx, y + sh + g, sw, sh)); }
       }
@@ -108,7 +148,7 @@ export const TEMPLATES = [
       }
       return { slots: sl, bg: { c1: '#ffffff' } };
     } },
-  { id: 'brick', cat: 'grid', name: 'Mauerwerk', desc: 'Spalten mit versetzten Höhen über die Nähte.', gap: .022, vars: ['2 Spalten', '3 Spalten'],
+  { id: 'brick', noMirror: true, cat: 'grid', name: 'Mauerwerk', desc: 'Spalten mit versetzten Höhen über die Nähte.', gap: .022, vars: ['2 Spalten', '3 Spalten'],
     build(n, A, o) {
       const g = o.g, per = o.v ? 3 : 2, N = n * per + 1, cw = (n - (N - 1) * g) / (N - 1), r = seeded(9 + o.seed * 5), sl = [];
       for (let j = 0; j < N; j++) {
@@ -121,14 +161,14 @@ export const TEMPLATES = [
     } },
 
   /* ---------- Über die Naht ---------- */
-  { id: 'seam', cat: 'seam', name: 'Über die Naht', desc: 'Fotos sitzen genau auf den Übergängen.', vars: ['Gerade', 'Gedreht', 'Groß mit Rand', 'Kreise'],
+  { id: 'seam', noMirror: true, cat: 'seam', name: 'Über die Naht', desc: 'Fotos sitzen genau auf den Übergängen.', vars: ['Gerade', 'Gedreht', 'Groß mit Rand', 'Kreise'],
     build(n, A, o) {
       const sl = seams(n).map((x, i) => o.v === 3 ? C(x, A / 2, .78, .78, { shape: 'circle', border: .02, shadow: true })
         : o.v === 2 ? C(x, A / 2, 1.04, A * .78, { border: .022, shadow: true })
         : C(x, A / 2, A * .72 * .8, A * .72, { shadow: true, rot: o.v === 1 ? (i % 2 ? 4 : -4) : 0 }));
       return { slots: sl };
     } },
-  { id: 'offset', cat: 'seam', name: 'Versetzt', desc: 'Jede Slide zeigt zwei halbe Fotos.', gap: .025, vars: ['Volle Höhe', 'Mit Rand', 'Gestaffelt'],
+  { id: 'offset', noMirror: true, cat: 'seam', name: 'Versetzt', desc: 'Jede Slide zeigt zwei halbe Fotos.', gap: .025, vars: ['Volle Höhe', 'Mit Rand', 'Gestaffelt'],
     build(n, A, o) {
       const g = o.g, sl = [];
       for (let i = 0; i <= n; i++) {
@@ -138,26 +178,26 @@ export const TEMPLATES = [
       }
       return { slots: sl, bg: { c1: '#ffffff' } };
     } },
-  { id: 'stairs', cat: 'seam', name: 'Treppe', desc: 'Fotos laufen schräg durchs Karussell.', vars: ['Abwärts', 'Aufwärts', 'Welle'],
+  { id: 'stairs', noMirror: true, cat: 'seam', name: 'Treppe', desc: 'Fotos laufen schräg durchs Karussell.', vars: ['Abwärts', 'Aufwärts', 'Welle'],
     build(n, A, o) {
       const c = n + 1, w = .56, h = w / .85, sl = [];
       for (let i = 0; i < c; i++) { const t = i / Math.max(1, c - 1), f = o.v === 0 ? t : o.v === 1 ? 1 - t : .5 + .5 * Math.sin(t * Math.PI * 2);
         sl.push(C(.36 + i * (n - .72) / Math.max(1, c - 1), h / 2 + .06 + f * (A - h - .12), w, h, { shape: 'round', radius: 5, shadow: true })); }
       return { slots: sl };
     } },
-  { id: 'zigzag', cat: 'seam', name: 'Zickzack', desc: 'Abwechselnd oben und unten.', vars: ['Klar', 'Weißer Rand', 'Abgerundet'],
+  { id: 'zigzag', noMirror: true, cat: 'seam', name: 'Zickzack', desc: 'Abwechselnd oben und unten.', vars: ['Klar', 'Weißer Rand', 'Abgerundet'],
     build(n, A, o) {
       const sl = []; for (let i = 0; i < 2 * n - 1; i++) sl.push(C(.5 + i * .5, A * (i % 2 ? .66 : .34), .58, .58 / .8 * (A > 1.3 ? 1 : .86),
         o.v === 1 ? { border: .018, shadow: true, rot: i % 2 ? 2 : -2 } : o.v === 2 ? { shape: 'round', radius: 10, shadow: true } : { shadow: true }));
       return { slots: sl };
     } },
-  { id: 'overlap', cat: 'seam', name: 'Überlappend', desc: 'Große Abzüge überlagern sich über die Nähte.', vars: ['Locker', 'Dicht'],
+  { id: 'overlap', noMirror: true, cat: 'seam', name: 'Überlappend', desc: 'Große Abzüge überlagern sich über die Nähte.', vars: ['Locker', 'Dicht'],
     build(n, A, o) {
       const c = o.v ? 2 * n : n + 1, w = o.v ? .7 : .9, h = A * .6, sl = [];
       for (let i = 0; i < c; i++) sl.push(C(w / 2 + .05 + i * (n - w - .1) / Math.max(1, c - 1), A * (i % 2 ? .62 : .38), w, h, { border: .015, shadow: true, rot: i % 2 ? 2.5 : -2 }));
       return { slots: sl };
     } },
-  { id: 'ribbon', cat: 'seam', name: 'Bildband', desc: 'Eine Reihe gleicher Bilder läuft durch.', gap: .025, vars: ['Mittig', 'Zwei Reihen', 'Schräg'],
+  { id: 'ribbon', noMirror: true, cat: 'seam', name: 'Bildband', desc: 'Eine Reihe gleicher Bilder läuft durch.', gap: .025, vars: ['Mittig', 'Zwei Reihen', 'Schräg'],
     build(n, A, o) {
       const g = o.g, sl = [];
       const row = (cy, h, off, rot = 0) => { const w = h * .8, step = w + g, cnt = Math.ceil((n + w) / step) + 1;
@@ -186,7 +226,7 @@ export const TEMPLATES = [
       for (let i = 0; i < c; i++) sl.push(C((i + .5) * n / c + (o.v ? (r() - .5) * .15 : 0), A * (o.v ? .3 + r() * .4 : .46), .36, .46, { frame: 'instax', rot: o.v ? (r() - .5) * 16 : (i % 2 ? 2 : -2), shadow: true }));
       return { slots: sl, bg: { c1: '#f6f1ea' } };
     } },
-  { id: 'film', cat: 'analog', name: 'Filmstreifen', desc: 'Kleinbild-Negativstreifen.', vars: ['Waagerecht', 'Zwei Streifen', 'Schräg'],
+  { id: 'film', noMirror: true, cat: 'analog', name: 'Filmstreifen', desc: 'Kleinbild-Negativstreifen.', vars: ['Waagerecht', 'Zwei Streifen', 'Schräg'],
     build(n, A, o) {
       const sl = [], F = { frame: 'film', borderColor: '#161616' };
       const strip = (cy, w, off = 0, rot = 0) => { const ow = w * 1.05, cnt = Math.ceil(n / ow) + 2;
@@ -196,7 +236,7 @@ export const TEMPLATES = [
       else strip(A / 2, .72, 0, -7);
       return { slots: sl, bg: { c1: o.v === 2 ? '#e9e4da' : '#efece6', pattern: o.v === 2 ? 'paper' : 'none' } };
     } },
-  { id: 'contact', cat: 'analog', name: 'Kontaktabzug', desc: 'Viele kleine Negative wie auf dem Leuchttisch.', vars: ['Schwarz', 'Weiß'],
+  { id: 'contact', noMirror: true, cat: 'analog', name: 'Kontaktabzug', desc: 'Viele kleine Negative wie auf dem Leuchttisch.', vars: ['Schwarz', 'Weiß'],
     build(n, A, o) {
       const sl = [], deco = [];
       for (let i = 0; i < n; i++) {
@@ -227,7 +267,7 @@ export const TEMPLATES = [
       }
       return { slots: sl, bg: { c1: o.v ? '#f2efe9' : '#22262c' } };
     } },
-  { id: 'scrapbook', cat: 'analog', name: 'Album', desc: 'Abzüge mit Klebeband und Handschrift.', vars: ['Papier', 'Kraftpapier', 'Kariert'],
+  { id: 'scrapbook', noMirror: true, cat: 'analog', name: 'Album', desc: 'Abzüge mit Klebeband und Handschrift.', vars: ['Papier', 'Kraftpapier', 'Kariert'],
     build(n, A, o) {
       const c = Math.max(2, Math.round(n * 1.5)), sl = [], deco = [];
       for (let i = 0; i < c; i++) {
@@ -240,31 +280,43 @@ export const TEMPLATES = [
     } },
 
   /* ---------- Editorial ---------- */
-  { id: 'cover', cat: 'edit', name: 'Titel + Galerie', desc: 'Titelseite, dann die Bilder.', vars: ['Bogen', 'Kreis', 'Vollbild'],
+  { id: 'cover', cat: 'edit', name: 'Titel + Galerie', desc: 'Titelseite, dann abwechslungsreiche Galerieseiten.', vars: ['Bogen', 'Kreis', 'Vollbild'],
     build(n, A, o) {
       const sl = [], deco = [];
       if (o.v === 0) sl.push(S(.19, A * .34, .62, A * .55, { shape: 'arch' }));
       else if (o.v === 1) sl.push(C(.5, A * .6, .66, .66, { shape: 'circle' }));
       else sl.push(S(0, 0, 1, A));
-      for (let i = 1; i < n; i++) sl.push(C(i + .5, A / 2, .84, .84 / .8));
+      sl.push(...pages(n, A, o, 1, ['margin', 'two', 'small', 'twoTall', 'offset', 'grid4', 'tilt']));
       const dark = o.v === 2;
       deco.push(TX('title', .5, dark ? A * .78 : A * .17, 'Wochenende\nam Meer', { font: 'DM Serif Display', size: .11, color: dark ? '#ffffff' : '#1d1d1d', lineH: 1.02, shadow: dark }));
       deco.push(TX('sub', .5, A * .94, 'WISCHEN →', { font: 'Space Mono', size: .032, color: dark ? '#ffffff' : '#1d1d1d', spacing: 18 }));
       return { slots: sl, deco, bg: { c1: '#f4efe6' } };
     } },
-  { id: 'magazine', cat: 'edit', name: 'Magazin', desc: 'Großes Titelbild mit Schlagzeile.', vars: ['Schlagzeile', 'Kapitel'],
+  { id: 'magazine', cat: 'edit', name: 'Magazin', desc: 'Großes Titelbild mit Schlagzeile, dann Magazinseiten.', vars: ['Schlagzeile', 'Kapitel'],
     build(n, A, o) {
       const sl = [S(0, 0, 1, A)], deco = [TX('title', .5, A * .13, 'DER NORDEN', { font: 'Anton', size: .16, color: '#ffffff', spacing: 4 }), TX('sub', .5, A * .9, 'Eine Fotostrecke über Wind & Licht', { font: 'Playfair Display', size: .043, color: '#ffffff' })];
+      const P = pager(n, o, 4);
       for (let i = 1; i < n; i++) {
-        if (o.v === 0) { sl.push(S(i + .11, A * .08, .78, A * .72)); deco.push(TX('p' + i, i + .5, A * .9, String(i + 1).padStart(2, '0'), { font: 'Space Mono', size: .037, color: '#1d1d1d' })); }
-        else { sl.push(S(i + .08, .08, .84, A * .6)); deco.push(TX('k' + i, i + .5, A * .6 + .2, `Kapitel ${ROMAN[i]}`, { font: 'DM Serif Display', size: .075, color: '#1d1d1d' }), TX('kt' + i, i + .5, A * .6 + .31, 'Notizen vom Weg', { font: 'Space Mono', size: .028, color: '#6b665e', spacing: 6 })); }
+        const k = P(i), num = TX('p' + i, i + .5, A * .955, String(i + 1).padStart(2, '0'), { font: 'Space Mono', size: .03, color: '#1d1d1d' });
+        if (o.v === 1 && k < 2) { sl.push(S(i + .08, .08, .84, A * .6)); deco.push(TX('k' + i, i + .5, A * .6 + .2, `Kapitel ${ROMAN[i]}`, { font: 'DM Serif Display', size: .075, color: '#1d1d1d' }), TX('kt' + i, i + .5, A * .6 + .31, 'Notizen vom Weg', { font: 'Space Mono', size: .028, color: '#6b665e', spacing: 6 })); continue; }
+        if (k === 0) sl.push(S(i + .11, A * .08, .78, A * .78));
+        else if (k === 1) { sl.push(S(i, 0, 1, A * .62), S(i + .08, A * .62 + .06, .4, A * .3), S(i + .52, A * .62 + .06, .4, A * .3)); }
+        else if (k === 2) { sl.push(S(i + .08, .08, .55, A * .55), S(i + .37, A * .45, .55, A * .45)); deco.push(TX('q' + i, i + .78, A * .25, '„Der Wind\nweiß Bescheid.“', { font: 'Playfair Display', size: .04, color: '#1d1d1d', lineH: 1.1 })); }
+        else { sl.push(S(i + .06, .06, .42, A * .86), S(i + .52, .06, .42, A * .42), S(i + .52, A * .5, .42, A * .42)); }
+        deco.push(num);
       }
       return { slots: sl, deco, bg: { c1: '#ffffff' } };
     } },
-  { id: 'minimal', cat: 'edit', name: 'Galerie', desc: 'Viel Weißraum, kleine Bildunterschrift.', vars: ['Klein', 'Mittel', 'Mit Datum'],
+  { id: 'minimal', cat: 'edit', name: 'Galerie', desc: 'Viel Weißraum, kleine Bildunterschrift – Größe und Lage wechseln.', vars: ['Klein', 'Mittel', 'Mit Datum'],
     build(n, A, o) {
-      const sl = [], deco = [], w = o.v === 1 ? .7 : .52, h = w / .8, cy = A * .45;
-      for (let i = 0; i < n; i++) { sl.push(C(i + .5, cy, w, h)); deco.push(TX('c' + i, i + .5, cy + h / 2 + .07, o.v === 2 ? `${today()} · ${String(i + 1).padStart(2, '0')}` : `No. ${String(i + 1).padStart(2, '0')}`, { font: 'Space Mono', size: .026, color: '#4a463f', spacing: 8 })); }
+      const sl = [], deco = [], P = pager(n, o, 4), cap = i => o.v === 2 ? `${today()} · ${String(i + 1).padStart(2, '0')}` : `No. ${String(i + 1).padStart(2, '0')}`, T = { font: 'Space Mono', size: .026, color: '#4a463f', spacing: 8 };
+      for (let i = 0; i < n; i++) {
+        const k = (P(i) + (o.v === 1 ? 1 : 0)) % 4;
+        if (k === 0) { sl.push(C(i + .5, A * .45, .52, .65)); deco.push(TX('c' + i, i + .5, A * .45 + .4, cap(i), T)); }
+        else if (k === 1) { sl.push(C(i + .5, A * .46, .7, .875)); deco.push(TX('c' + i, i + .5, A * .46 + .5, cap(i), T)); }
+        else if (k === 2) { sl.push(S(i + .1, .12, .5, .62)); deco.push(TX('c' + i, i + .78, .14 + .58, cap(i), { ...T, align: 'left' })); }
+        else { sl.push(S(i + .12, A * .18, .36, .45), S(i + .52, A * .18 + .2, .36, .45)); deco.push(TX('c' + i, i + .5, A * .18 + .78, cap(i), T)); }
+      }
       return { slots: sl, deco, bg: { c1: '#f4f1ea' } };
     } },
   { id: 'split', cat: 'edit', name: 'Halb & halb', desc: 'Foto und Farbfläche mit Text.', vars: ['Links', 'Wechselnd', 'Oben'],
@@ -276,7 +328,7 @@ export const TEMPLATES = [
       }
       return { slots: sl, deco, bg: { c1: '#1f3a4d' } };
     } },
-  { id: 'timeline', cat: 'edit', name: 'Zeitstrahl', desc: 'Eine Linie verbindet alle Bilder.', vars: ['Rechteckig', 'Kreise'],
+  { id: 'timeline', noMirror: true, cat: 'edit', name: 'Zeitstrahl', desc: 'Eine Linie verbindet alle Bilder.', vars: ['Rechteckig', 'Kreise'],
     build(n, A, o) {
       const sl = [], deco = [SH('line', n / 2, A / 2, n - .1, .008, { fill: '#1d1d1d', under: true })], c = 2 * n - 1;
       for (let i = 0; i < c; i++) {
@@ -286,10 +338,10 @@ export const TEMPLATES = [
       }
       return { slots: sl, deco, bg: { c1: '#f4efe6' } };
     } },
-  { id: 'quote', cat: 'edit', name: 'Zitat', desc: 'Erste Slide ein Satz, dann die Bilder.', vars: ['Hell', 'Dunkel'],
+  { id: 'quote', cat: 'edit', name: 'Zitat', desc: 'Erste Slide ein Satz, dann abwechslungsreiche Bildseiten.', vars: ['Hell', 'Dunkel'],
     build(n, A, o) {
-      const dark = o.v === 1, col = dark ? '#f4efe6' : '#1d1d1d', sl = [], deco = [TX('q', .5, A * .46, '„Manche Tage\nmöchte man\neinrahmen.“', { font: 'Playfair Display', size: .095, color: col, lineH: 1.1 }), TX('qa', .5, A * .78, '— NOTIZ AN MICH', { font: 'Space Mono', size: .026, color: col, spacing: 12 })];
-      for (let i = 1; i < n; i++) sl.push(dark ? S(i, 0, 1, A) : C(i + .5, A / 2, .84, .84 / .8));
+      const dark = o.v === 1, col = dark ? '#f4efe6' : '#1d1d1d', deco = [TX('q', .5, A * .46, '„Manche Tage\nmöchte man\neinrahmen.“', { font: 'Playfair Display', size: .095, color: col, lineH: 1.1 }), TX('qa', .5, A * .78, '— NOTIZ AN MICH', { font: 'Space Mono', size: .026, color: col, spacing: 12 })];
+      const sl = pages(n, A, o, 1, dark ? ['full', 'pip', 'twoTall', 'trio'] : ['margin', 'two', 'small', 'tilt', 'diag']);
       if (n === 1) sl.push(C(.5, A * .9, .2, .2, { shape: 'circle' }));
       return { slots: sl, deco, bg: { c1: dark ? '#121212' : '#f4efe6' } };
     } },
@@ -298,8 +350,13 @@ export const TEMPLATES = [
   { id: 'torn', cat: 'paper', name: 'Risskanten', desc: 'Fotostreifen mit zerrissenen Papierkanten.', vars: ['3 Streifen', '2 Streifen', 'Senkrecht'],
     build(n, A, o) {
       const sl = [], E = { edge: 'torn', shadow: true };
-      if (o.v === 2) { const N = n * 2, w = n / N; for (let j = 0; j < N; j++) sl.push(S(j * w - .03, -.02, w + .06, A + .04, { ...E, edgeSides: 'lr' })); }
-      else { const k = o.v ? 2 : 3, bh = A / k; for (let i = 0; i < n; i++) for (let j = 0; j < k; j++) sl.push(S(i - .01, j * bh - (j ? .035 : .02), 1.02, bh + (j ? .07 : .055), { ...E, edgeSides: 'tb' })); }
+      if (o.v === 2) { const N = n * 2, w = n / N; for (let j = 0; j < N; j++) sl.push(S(j * w - .03, -.02, w + .06, A + .04, { ...E, edgeSides: 'lr' })); return { slots: sl, bg: { c1: '#ffffff' } }; }
+      const P = pager(n, o, 3);
+      for (let i = 0; i < n; i++) {
+        const k = [o.v ? 2 : 3, o.v ? 3 : 2, 4][P(i)], bh = A / k;
+        if (P(i) === 2 && o.mix) { sl.push(S(i - .01, -.02, .55, A + .04, { ...E, edgeSides: 'r' }), S(i + .47, -.02, .54, A / 2 + .03, { ...E, edgeSides: 'lb' }), S(i + .47, A / 2 - .03, .54, A / 2 + .05, { ...E, edgeSides: 'lt' })); continue; }
+        for (let j = 0; j < k; j++) sl.push(S(i - .01, j * bh - (j ? .035 : .02), 1.02, bh + (j ? .07 : .055), { ...E, edgeSides: 'tb' }));
+      }
       return { slots: sl, bg: { c1: '#ffffff' } };
     } },
   { id: 'tornCollage', cat: 'paper', name: 'Zerrissene Collage', desc: 'Großes Foto, darauf gerissene Abzüge.', vars: ['Hell', 'Dunkel', "Today's dump"],
@@ -315,39 +372,49 @@ export const TEMPLATES = [
     } },
   { id: 'stamps', cat: 'paper', name: 'Briefmarken', desc: 'Fotos mit gezacktem Briefmarkenrand.', vars: ['Raster auf Rot', 'Großmarke + Perlen', 'Blau 2×2'],
     build(n, A, o) {
-      const sl = [], deco = [], St = { edge: 'stamp', borderColor: '#fbf8f1', shadow: true };
+      const sl = [], deco = [], St = { edge: 'stamp', borderColor: '#fbf8f1', shadow: true }, P = pager(n, o, 3);
       for (let i = 0; i < n; i++) {
-        if (o.v === 0) for (let k = 0; k < 6; k++) sl.push(C(i + .5 + (k % 2 - .5) * .4, A / 2 + (Math.floor(k / 2) - 1) * .36, .32, .27, St));
-        else if (o.v === 1) sl.push(C(i + .5, A * .44, .66, .54, { ...St, rot: i % 2 ? 3 : -4 }));
-        else for (let k = 0; k < 4; k++) sl.push(C(i + .5 + (k % 2 - .5) * .44, A / 2 + ((k >> 1) - .5) * .5, .36, .36, { ...St, rot: [-2, 2, 3, -3][k] }));
+        const k = o.mix ? (o.v + P(i)) % 3 : o.v;
+        if (k === 0) for (let j = 0; j < 6; j++) sl.push(C(i + .5 + (j % 2 - .5) * .4, A / 2 + (Math.floor(j / 2) - 1) * .36, .32, .27, St));
+        else if (k === 1) sl.push(C(i + .5, A * .44, .66, .54, { ...St, rot: i % 2 ? 3 : -4 }));
+        else for (let j = 0; j < 4; j++) sl.push(C(i + .5 + (j % 2 - .5) * .44, A / 2 + ((j >> 1) - .5) * .5, .36, .36, { ...St, rot: [-2, 2, 3, -3][j] }));
       }
       if (o.v === 1) deco.push(TX('beads', .5, A * .44 + .33, 'SUMMER', { font: 'Archivo Black', size: .095, color: '#1d1d1d', bg: 'beads', bgColor: '#e4e1da', rot: -4 }));
       return { slots: sl, deco, bg: { c1: ['#9e2b25', '#cdd7e2', '#1f3a5f'][o.v] } };
     } },
   { id: 'deckle', cat: 'paper', name: 'Büttenrand', desc: 'Abzüge mit fransigem Papierrand.', vars: ['Drei', 'Zwei', 'Dunkel'],
     build(n, A, o) {
-      const sl = [], k = o.v === 1 ? 2 : 3, h = (A - .12) / k - .035, w = o.v === 1 ? .7 : .58;
-      for (let i = 0; i < n; i++) for (let j = 0; j < k; j++) sl.push(C(i + .5, .06 + h / 2 + j * (h + .035), w, h, { edge: 'deckle', borderColor: o.v === 2 ? '#f4f1ea' : '#ffffff', rot: (j % 2 ? .8 : -.6) }));
+      const sl = [], P = pager(n, o, 3), D = { edge: 'deckle', borderColor: o.v === 2 ? '#f4f1ea' : '#ffffff' };
+      for (let i = 0; i < n; i++) {
+        const k = o.mix ? ((o.v === 1 ? 1 : 0) + P(i)) % 3 : (o.v === 1 ? 1 : 0);
+        if (k === 2) { sl.push(C(i + .5, A * .5, .78, A * .82, { ...D, rot: .8 })); continue; }
+        const c = k ? 2 : 3, h = (A - .12) / c - .035, w = k ? .7 : .58;
+        for (let j = 0; j < c; j++) sl.push(C(i + .5 + (k ? 0 : (j - 1) * .04), .06 + h / 2 + j * (h + .035), w, h, { ...D, rot: (j % 2 ? .8 : -.6) }));
+      }
       return { slots: sl, bg: { c1: o.v === 2 ? '#141414' : '#ffffff' } };
     } },
-  { id: 'notebook', cat: 'paper', name: 'Notizbuch', desc: 'Spiralbindung, Foto und kleine Notiz.', vars: ['Foto unten', 'Foto oben', 'Ganze Seite'],
+  { id: 'notebook', cat: 'paper', name: 'Notizbuch', desc: 'Spiralbindung, Foto und kleine Notiz – Seiten wechseln.', vars: ['Foto unten', 'Foto oben', 'Ganze Seite'],
     build(n, A, o) {
-      const sl = [], deco = [], W = ['(Blumen)', '(Licht)', '(Meer)', '(Zuhause)', '(Morgens)', '(Wir)', '(Unterwegs)', '(Abends)'];
+      const sl = [], deco = [], W = ['(Blumen)', '(Licht)', '(Meer)', '(Zuhause)', '(Morgens)', '(Wir)', '(Unterwegs)', '(Abends)'], P = pager(n, o, 3), T = { font: 'Playfair Display', size: .03, color: '#3a3226' };
       for (let i = 0; i < n; i++) {
-        if (o.v === 0) { sl.push(S(i, A * .47, 1, A * .53)); deco.push(SH('spiral', i + .5, A * .47, .96, .09, {}), TX('n' + i, i + .5, A * .23, W[i % 8], { font: 'Playfair Display', size: .03, color: '#3a3226' })); }
-        else if (o.v === 1) { sl.push(S(i, 0, 1, A * .53)); deco.push(SH('spiral', i + .5, A * .53, .96, .09, {}), TX('n' + i, i + .5, A * .8, W[i % 8], { font: 'Playfair Display', size: .03, color: '#3a3226' })); }
-        else { sl.push(C(i + .5, A * .5, .8, A * .62)); deco.push(SH('spiral', i + .5, .06, .96, .09, {}), TX('n' + i, i + .5, A * .9, W[i % 8], { font: 'Playfair Display', size: .03, color: '#3a3226' })); }
+        const k = (o.v + P(i)) % 3;
+        if (k === 0) { sl.push(S(i, A * .47, 1, A * .53)); deco.push(SH('spiral', i + .5, A * .47, .96, .09, {}), TX('n' + i, i + .5, A * .23, W[i % 8], T)); }
+        else if (k === 1) { sl.push(S(i, 0, 1, A * .53)); deco.push(SH('spiral', i + .5, A * .53, .96, .09, {}), TX('n' + i, i + .5, A * .8, W[i % 8], T)); }
+        else { sl.push(C(i + .5, A * .5, .8, A * .62)); deco.push(SH('spiral', i + .5, .06, .96, .09, {}), TX('n' + i, i + .5, A * .9, W[i % 8], T)); }
       }
       return { slots: sl, deco, bg: { c1: o.v === 2 ? '#fbfaf6' : '#e6dccd', pattern: o.v === 2 ? 'lines' : 'paper' } };
     } },
-  { id: 'pinned', cat: 'paper', name: 'Angeheftet', desc: 'Abzug mit Büroklammer und Foldback-Klammer.', vars: ['Rot', 'Beige', 'Nacht'],
+  { id: 'pinned', cat: 'paper', name: 'Angeheftet', desc: 'Abzüge mit Büroklammer und Foldback-Klammer.', vars: ['Rot', 'Beige', 'Nacht'],
     build(n, A, o) {
-      const sl = [], deco = [], ink = o.v === 1 ? '#3a3226' : '#f4efe6';
+      const sl = [], deco = [], ink = o.v === 1 ? '#3a3226' : '#f4efe6', P = pager(n, o, 3), B = { border: .022, borderColor: '#f7f5f0', shadow: true }, NOTE = ['Gemacht, um erinnert zu werden', 'Kleine Dinge', 'Für später', 'Nicht vergessen'];
       for (let i = 0; i < n; i++) {
-        const rot = i % 2 ? 2 : -2.5, h = A * .6;
-        sl.push(C(i + .5, A * .48, .6, h, { border: .022, borderColor: '#f7f5f0', rot, shadow: true }));
-        deco.push(SH('clip', i + .32, A * .48 - h / 2 - .02, .055, .14, { rot: rot - 8 }), SH('binder', i + .82, A * .55, .1, .085, { rot: 90 + rot }),
-          TX('pc' + i, i + .5, A * .48 + h / 2 + .095, ['Gemacht, um erinnert zu werden', 'Kleine Dinge', 'Für später', 'Nicht vergessen'][i % 4], { font: 'Special Elite', size: .026, color: ink, spacing: 10 }));
+        const k = P(i), rot = i % 2 ? 2 : -2.5;
+        if (k === 0) { const h = A * .6; sl.push(C(i + .5, A * .48, .6, h, { ...B, rot }));
+          deco.push(SH('clip', i + .32, A * .48 - h / 2 - .02, .055, .14, { rot: rot - 8 }), SH('binder', i + .82, A * .55, .1, .085, { rot: 90 + rot }), TX('pc' + i, i + .5, A * .48 + h / 2 + .095, NOTE[i % 4], { font: 'Special Elite', size: .026, color: ink, spacing: 10 })); }
+        else if (k === 1) { sl.push(C(i + .38, A * .34, .5, A * .36, { ...B, rot: -4 }), C(i + .6, A * .68, .5, A * .36, { ...B, rot: 3 }));
+          deco.push(SH('clip', i + .2, A * .15, .05, .13, { rot: -12 }), SH('binder', i + .6, A * .48, .1, .085, {}), TX('pc' + i, i + .5, A * .94, NOTE[i % 4], { font: 'Special Elite', size: .024, color: ink, spacing: 10 })); }
+        else { sl.push(C(i + .5, A * .42, .76, A * .56, { ...B, rot: 1.5 }));
+          deco.push(SH('tape', i + .22, A * .14, .2, .06, { rot: -30, fill: '#f3e2b3' }), SH('tape', i + .8, A * .14, .2, .06, { rot: 28, fill: '#f3e2b3' }), TX('pc' + i, i + .5, A * .82, NOTE[i % 4], { font: 'Caveat', size: .05, color: ink })); }
       }
       return { slots: sl, deco, bg: { c1: ['#7a1712', '#e8dccb', '#1b1f2a'][o.v], pattern: 'paper' } };
     } },
@@ -365,14 +432,17 @@ export const TEMPLATES = [
     } },
 
   /* ---------- Kritzeleien ---------- */
-  { id: 'scribble', cat: 'doodle', name: 'Kritzel-Rahmen', desc: 'Handgezeichnete Linien um die Fotos.', vars: ['Rahmen', 'Mit Pfeil', 'Ecken'],
+  { id: 'scribble', cat: 'doodle', name: 'Kritzel-Rahmen', desc: 'Handgezeichnete Linien um die Fotos – jede Slide anders.', vars: ['Rahmen', 'Mit Pfeil', 'Ecken'],
     build(n, A, o) {
-      const sl = [], deco = [];
+      const sl = [], deco = [], P = pager(n, o, 4), K = { fill: '#1d1d1d' };
       for (let i = 0; i < n; i++) {
-        if (o.v === 0) { sl.push(C(i + .5, A / 2, .72, A * .66)); deco.push(SH('scribble', i + .5, A / 2, .76, A * .7, { fill: '#1d1d1d' })); }
-        else if (o.v === 1) { sl.push(C(i + .42, A * .55, .62, A * .62)); deco.push(SH('scribble', i + .42, A * .55, .66, A * .66, { fill: '#1d1d1d' }), SH('scribbleArrow', i + .78, A * .15, .2, .1, { fill: '#1d1d1d', rot: 8 }),
+        const k = o.mix ? (o.v + P(i)) % 4 : o.v;
+        if (k === 0) { sl.push(C(i + .5, A / 2, .72, A * .66)); deco.push(SH('scribble', i + .5, A / 2, .76, A * .7, K)); }
+        else if (k === 1) { sl.push(C(i + .42, A * .55, .62, A * .62)); deco.push(SH('scribble', i + .42, A * .55, .66, A * .66, K), SH('scribbleArrow', i + .78, A * .15, .2, .1, { ...K, rot: 8 }),
           TX('a' + i, i + .56, A * .11, ['alles, was ich brauche', 'genau so', 'mein Lieblingsort', 'nochmal bitte'][i % 4], { font: 'Caveat', size: .045, color: '#1d1d1d', rot: -6 })); }
-        else { sl.push(C(i + .5, A / 2, .72, A * .7)); deco.push(SH('corners', i + .5, A / 2, .82, A * .8, { fill: '#1d1d1d' })); }
+        else if (k === 2) { sl.push(C(i + .5, A / 2, .72, A * .7)); deco.push(SH('corners', i + .5, A / 2, .82, A * .8, K)); }
+        else { sl.push(C(i + .36, A * .32, .5, A * .4, { rot: -3 }), C(i + .62, A * .7, .5, A * .4, { rot: 2 })); deco.push(SH('scribble', i + .36, A * .32, .54, A * .44, K), SH('scribbleArrow', i + .3, A * .66, .16, .1, { ...K, rot: 100 }),
+          TX('b' + i, i + .25, A * .86, ['und dann …', 'später', 'wir'][i % 3], { font: 'Caveat', size: .045, color: '#1d1d1d', rot: -4 })); }
       }
       return { slots: sl, deco, bg: { c1: '#fbfaf8' } };
     } },
@@ -401,7 +471,7 @@ export const TEMPLATES = [
       }
       return { slots: sl, deco, bg: { c1: '#f6f5f2' } };
     } },
-  { id: 'diagonal', cat: 'grid', name: 'Schräge Collage', desc: 'Gekipptes Raster mit Schreibschrift-Feld.', gap: .02, vars: ['Links geneigt', 'Rechts geneigt'],
+  { id: 'diagonal', noMirror: true, cat: 'grid', name: 'Schräge Collage', desc: 'Gekipptes Raster mit Schreibschrift-Feld.', gap: .02, vars: ['Links geneigt', 'Rechts geneigt'],
     build(n, A, o) {
       const a = o.v ? 16 : -24, g = Math.max(.012, o.g), cw = .78, rh = .62, cx0 = n / 2, cy0 = A / 2, sl = [], deco = [];
       let best = null;
@@ -415,32 +485,43 @@ export const TEMPLATES = [
         deco.push(SH('rect', b.x + b.w / 2, b.y + b.h / 2, cw, rh, { fill: '#f4f3ef', rot: a, under: true }), TX('dt', b.x + b.w / 2, b.y + b.h / 2, 'Meine liebsten\nMomente 2026', { font: 'Great Vibes', size: .07, color: '#2b2b2b', rot: a, lineH: 1.1 })); }
       return { slots: sl, deco, bg: { c1: '#ffffff' } };
     } },
-  { id: 'pip', cat: 'pano', name: 'Bild im Bild', desc: 'Foto als Hintergrund, darauf ein gerahmtes Foto.', vars: ['Mittig', 'Versetzt', 'Zwei nebeneinander'],
+  { id: 'pip', cat: 'pano', name: 'Bild im Bild', desc: 'Foto als Hintergrund, darauf gerahmte Fotos.', vars: ['Mittig', 'Versetzt', 'Zwei nebeneinander'],
     build(n, A, o) {
-      const sl = [], F = { border: .012, borderColor: '#ffffff', shadow: true };
+      const sl = [], F = { border: .012, borderColor: '#ffffff', shadow: true }, P = pager(n, o, 4);
       for (let i = 0; i < n; i++) {
         sl.push(S(i, 0, 1, A));
-        if (o.v === 0) sl.push(C(i + .5, A * .55, .58, A * .5, F));
-        else if (o.v === 1) sl.push(C(i + .36, A * .66, .5, A * .48, F));
-        else sl.push(C(i + .3, A * .52, .38, A * .48, { ...F, shadow: false }), C(i + .7, A * .52, .38, A * .48, { ...F, shadow: false }));
+        const k = o.mix ? (o.v + P(i)) % 4 : o.v;
+        if (k === 0) sl.push(C(i + .5, A * .55, .58, A * .5, F));
+        else if (k === 1) sl.push(C(i + .36, A * .66, .5, A * .48, F));
+        else if (k === 2) sl.push(C(i + .3, A * .52, .38, A * .48, { ...F, shadow: false }), C(i + .7, A * .52, .38, A * .48, { ...F, shadow: false }));
+        else sl.push(C(i + .66, A * .3, .46, A * .34, { ...F, rot: 3 }));
       }
       return { slots: sl };
     } },
-  { id: 'poster', cat: 'edit', name: 'Filmplakat', desc: 'Titel, Lorbeerkränze und Abspann.', vars: ['Klassisch', 'Schreibschrift'],
+  { id: 'poster', cat: 'edit', name: 'Filmplakat', desc: 'Titel, Lorbeerkränze und Abspann, dann Filmszenen.', vars: ['Klassisch', 'Schreibschrift'],
     build(n, A, o) {
       const sl = [S(0, 0, 1, A)], deco = [], col = o.v ? '#d9b8e8' : '#ffffff';
       [.3, .5, .7].forEach((x, k) => deco.push(SH('laurel', x, A * .33, .17, .13, { fill: '#ffffff' }), TX('lw' + k, x, A * .33, ['KAMERA\nROLLE', 'BESTER\nTAG', 'SCHÖNE\nMOMENTE'][k], { font: 'Bebas Neue', size: .018, color: '#ffffff', lineH: 1 })));
       deco.push(TX('pt', .5, A * .6, o.v ? 'Hamburg' : 'HAMBURG', { font: o.v ? 'Great Vibes' : 'DM Serif Display', size: o.v ? .14 : .16, color: col }),
-        TX('pd', .62, A * .5, (o.v ? '' : '') + today().toUpperCase(), { font: 'Bebas Neue', size: .055, color: col }),
+        TX('pd', .62, A * .5, today().toUpperCase(), { font: 'Bebas Neue', size: .055, color: col }),
         TX('pc', .5, A * .91, 'EIN FILM VON DIR · KAMERA STREIFZUG · MUSIK VOM WIND\nIN DEN HAUPTROLLEN: SONNE, MEER UND EIN BISSCHEN REGEN\nDEMNÄCHST IN EINEM KARUSSELL IN DEINER NÄHE', { font: 'Bebas Neue', size: .016, color: '#ffffff', lineH: 1.2, spacing: 6 }));
-      for (let i = 1; i < n; i++) { sl.push(S(i, 0, 1, A)); deco.push(TX('pk' + i, i + .5, A * .95, `SZENE ${i + 1} · ${today().toUpperCase()}`, { font: 'Bebas Neue', size: .02, color: '#ffffff', spacing: 20 })); }
+      const P = pager(n, o, 3);
+      for (let i = 1; i < n; i++) {
+        const k = P(i);
+        if (k === 0) sl.push(S(i, 0, 1, A));
+        else if (k === 1) sl.push(S(i, A * .12, 1, A * .76)); // Kinobalken
+        else sl.push(S(i, 0, 1, A * .5 - .006), S(i, A * .5 + .006, 1, A * .5 - .006));
+        deco.push(TX('pk' + i, i + .5, A * .95, `SZENE ${i + 1} · ${today().toUpperCase()}`, { font: 'Bebas Neue', size: .02, color: '#ffffff', spacing: 20 }));
+      }
       return { slots: sl, deco, bg: { c1: '#111111' } };
     } },
-  { id: 'ovalNoir', cat: 'edit', name: 'Kino-Oval', desc: 'Ovaler Ausschnitt auf Schwarz, leise Typo.', vars: ['Oval', 'Bogen'],
+  { id: 'ovalNoir', cat: 'edit', name: 'Kino-Oval', desc: 'Ovale und Bögen auf Schwarz, leise Typo.', vars: ['Oval', 'Bogen'],
     build(n, A, o) {
-      const sl = [], deco = [];
+      const sl = [], deco = [], P = pager(n, o, 3), SHP = ['circle', 'arch', 'round'];
       for (let i = 0; i < n; i++) {
-        sl.push(C(i + .5, A * .4, .84, A * .66, { shape: o.v ? 'arch' : 'circle' }));
+        const sh = SHP[(o.v + P(i)) % 3];
+        if (sh === 'round') sl.push(C(i + .36, A * .4, .5, A * .6, { shape: 'circle' }), C(i + .7, A * .55, .38, A * .4, { shape: 'arch' }));
+        else sl.push(C(i + .5, A * .4, .84, A * .66, { shape: sh }));
         deco.push(TX('l' + i, i + .19, A * .88, ['DIE SCHÖNHEIT', 'NUR EIN', 'LEISE', 'AM ENDE'][i % 4], { font: 'Space Mono', size: .018, color: '#e9e6df', spacing: 8 }),
           TX('r' + i, i + .78, A * .88, ['DER KLEINEN DINGE', 'MOMENT', 'TAGE', 'DES TAGES'][i % 4], { font: 'Space Mono', size: .018, color: '#e9e6df', spacing: 8 }));
       }
@@ -462,7 +543,7 @@ export const TEMPLATES = [
   { id: 'scriptTitle', cat: 'edit', name: 'Schreibschrift-Titel', desc: 'Geschwungener Titel über geteiltem Bild.', vars: ['Geteilt', 'Vollbild'],
     build(n, A, o) {
       const sl = o.v ? [S(0, 0, 1, A)] : [S(0, 0, .5, A), S(.5, 0, .5, A)], deco = [];
-      for (let i = 1; i < n; i++) sl.push(S(i, 0, 1, A));
+      sl.push(...pages(n, A, o, 1, ['full', 'twoTall', 'pip', 'two']));
       deco.push(TX('st', .48, A * .36, 'Langsame Tage', { font: 'Great Vibes', size: .13, color: '#f4e7b4', rot: -7, shadow: true }), TX('ss', .36, A * .44, 'AUF EINER INSEL', { font: 'Playfair Display', size: .032, color: '#f4e7b4', spacing: 4, shadow: true }));
       return { slots: sl, deco };
     } },
@@ -470,9 +551,12 @@ export const TEMPLATES = [
     build(n, A, o) {
       const sl = [], F = { frame: 'filmv', borderColor: '#161616' };
       if (o.v === 2) { for (let i = 0; i < n; i++) sl.push(C(i + .5, A / 2, 1 / 1.3, A / 1.05, F)); return { slots: sl }; }
+      const P = pager(n, o, 3);
       for (let i = 0; i < n; i++) {
-        if (!o.v) sl.push(C(i + .5, A / 2, .6, A * .88, { ...F, rot: i % 2 ? 1.5 : -1, shadow: true }));
-        else { const h = .33, w = h * 1.5 > .58 ? .58 : h * 1.5, oh = h * 1.05; for (let k = 0; k < 3; k++) sl.push(C(i + .5, A / 2 + (k - 1) * oh, w, h, F)); }
+        const k = o.mix ? (o.v + P(i)) % 3 : o.v;
+        if (k === 0) sl.push(C(i + .5, A / 2, .6, A * .88, { ...F, rot: i % 2 ? 1.5 : -1, shadow: true }));
+        else if (k === 1) { const h = .33, w = Math.min(.58, h * 1.5), oh = h * 1.05; for (let j = 0; j < 3; j++) sl.push(C(i + .5, A / 2 + (j - 1) * oh, w, h, F)); }
+        else { sl.push(C(i + .3, A * .48, .34, A * .55, { ...F, rot: -4, shadow: true }), C(i + .7, A * .52, .34, A * .55, { ...F, rot: 3, shadow: true })); }
       }
       return { slots: sl, bg: { c1: o.v ? '#e9e4da' : '#efece6', pattern: 'paper' } };
     } },
@@ -511,11 +595,13 @@ export const TEMPLATES = [
     } },
   { id: 'stack', cat: 'collage', name: 'Stapel auf Foto', desc: 'Randloses Foto, darauf versetzte Abzüge.', vars: ['Drei', 'Zwei groß'],
     build(n, A, o) {
-      const sl = [], B = { border: .01, borderColor: '#ffffff', shadow: true };
+      const sl = [], B = { border: .01, borderColor: '#ffffff', shadow: true }, P = pager(n, o, 3);
       for (let i = 0; i < n; i++) {
         sl.push(S(i, 0, 1, A));
-        if (!o.v) [[.44, .2], [.58, .5], [.44, .8]].forEach(([fx, fy]) => sl.push(C(i + fx, A * fy, .44, A * .28, B)));
-        else [[.4, .3], [.62, .7]].forEach(([fx, fy], k) => sl.push(C(i + fx, A * fy, .56, A * .38, { ...B, rot: k ? 2 : -2 })));
+        const k = o.mix ? (o.v + P(i)) % 3 : o.v;
+        if (k === 0) [[.44, .2], [.58, .5], [.44, .8]].forEach(([fx, fy]) => sl.push(C(i + fx, A * fy, .44, A * .28, B)));
+        else if (k === 1) [[.4, .3], [.62, .7]].forEach(([fx, fy], j) => sl.push(C(i + fx, A * fy, .56, A * .38, { ...B, rot: j ? 2 : -2 })));
+        else sl.push(C(i + .5, A * .5, .62, A * .62, { ...B, frame: 'polaroid', rot: -3 }));
       }
       return { slots: sl };
     } },
@@ -543,11 +629,12 @@ export const TEMPLATES = [
   /* ---------- weitere Editorial ---------- */
   { id: 'titleCenter', cat: 'edit', name: 'Titel mittig', desc: 'Kleiner, edler Titel in der Bildmitte.', vars: ['Erinnerungen', 'Mit Rahmenlinie', 'Mit Untertitel'],
     build(n, A, o) {
-      const sl = [], deco = [];
-      for (let i = 0; i < n; i++) { sl.push(S(i, 0, 1, A)); if (o.v === 1) deco.push(SH('frame', i + .5, A / 2, .9, A - .1, { fill: '#ffffff', sw: 3 })); }
+      const sl = [S(0, 0, 1, A)], deco = [];
+      sl.push(...pages(n, A, o, 1, ['full', 'pip', 'twoTall', 'full']));
+      if (o.v === 1) for (let i = 0; i < n; i++) deco.push(SH('frame', i + .5, A / 2, .9, A - .1, { fill: '#ffffff', sw: 3 }));
       if (o.v === 2) deco.push(TX('t1', .5, A * .44, 'Herbstbilder', { font: 'Playfair Display', size: .055, color: '#ffffff', shadow: true }), TX('t2', .5, A * .48, 'AUFGENOMMEN AUF FILM', { font: 'Instrument Sans', size: .014, color: '#ffffff', spacing: 12, shadow: true }));
       else deco.push(TX('t1', .5, A * .43, 'HERBST', { font: 'Instrument Sans', size: .016, color: '#ffffff', spacing: 30, shadow: true }), TX('t2', .5, A * .47, 'ERINNERUNGEN', { font: 'DM Serif Display', size: .06, color: '#ffffff', spacing: 2, shadow: true }));
-      return { slots: sl, deco };
+      return { slots: sl, deco, bg: { c1: '#111111' } };
     } },
   { id: 'framePeek', cat: 'seam', name: 'Rand mit Vorschau', desc: 'Weißer Rand, das nächste Foto lugt über die Naht.', vars: ['Mit Titel', 'Ohne Titel'],
     build(n, A, o) {
@@ -556,16 +643,17 @@ export const TEMPLATES = [
       if (!o.v) deco.push(TX('t1', .45, A * .42, 'Herbstbilder', { font: 'Playfair Display', size: .05, color: '#ffffff', shadow: true }), TX('t2', .45, A * .46, 'AUFGENOMMEN AUF FILM', { font: 'Instrument Sans', size: .013, color: '#ffffff', spacing: 12, shadow: true }));
       return { slots: sl, deco, bg: { c1: '#ffffff' } };
     } },
-  { id: 'keyline', cat: 'edit', name: 'Feine Linie', desc: 'Viel Weiß, Foto mit Haarlinie.', vars: ['Schwarz', 'Abgesetzt'],
+  { id: 'keyline', cat: 'edit', name: 'Feine Linie', desc: 'Viel Weiß, Fotos mit Haarlinie – Anordnung wechselt.', vars: ['Schwarz', 'Abgesetzt'],
     build(n, A, o) {
-      const sl = []; for (let i = 0; i < n; i++) sl.push(C(i + .5, A / 2, .84, A - .2, { keyline: '#111111', keylineGap: o.v ? .02 : 0 }));
-      return { slots: sl, bg: { c1: '#fbfbfa' } };
+      const K = { keyline: '#111111', keylineGap: o.v ? .02 : 0 };
+      return { slots: [C(.5, A / 2, .84, A - .2, K), ...pages(n, A, o, 1, ['margin', 'two', 'small', 'twoTall', 'offset'], { card: K })], bg: { c1: '#fbfbfa' } };
     } },
-  { id: 'handCaption', cat: 'edit', name: 'Handnotiz', desc: 'Randloses Foto mit handschriftlicher Zeile.', vars: ['Unten', 'Oben'],
+  { id: 'handCaption', cat: 'edit', name: 'Handnotiz', desc: 'Fotos mit handschriftlicher Zeile.', vars: ['Unten', 'Oben'],
     build(n, A, o) {
-      const sl = [], deco = [], N = ['Hamburg, auf 35mm', 'Sonntagmorgen', 'irgendwo im Norden', 'Licht um halb acht', 'der Weg nach Hause'];
-      for (let i = 0; i < n; i++) { sl.push(S(i, 0, 1, A)); deco.push(TX('h' + i, i + .5, o.v ? A * .08 : A * .92, N[i % 5], { font: 'Caveat', size: .05, color: '#ffffff', shadow: true })); }
-      return { slots: sl, deco };
+      const sl = [S(0, 0, 1, A)], deco = [], N = ['Hamburg, auf 35mm', 'Sonntagmorgen', 'irgendwo im Norden', 'Licht um halb acht', 'der Weg nach Hause'];
+      sl.push(...pages(n, A, o, 1, ['full', 'pip', 'margin', 'full', 'twoTall'], { card: { border: .01, borderColor: '#ffffff' } }));
+      for (let i = 0; i < n; i++) deco.push(TX('h' + i, i + .5, o.v ? A * .08 : A * .93, N[i % 5], { font: 'Caveat', size: .05, color: '#ffffff', shadow: true }));
+      return { slots: sl, deco, bg: { c1: '#2b2b2b' } };
     } },
   { id: 'bigWord', cat: 'edit', name: 'Großes Wort', desc: 'Foto im Foto, darüber ein großes Wort.', vars: ['okt🌼ber', 'SOMMER', 'hallo'],
     build(n, A, o) {
@@ -576,9 +664,12 @@ export const TEMPLATES = [
     } },
   { id: 'travelFrame', cat: 'edit', name: 'Reise-Rahmen', desc: 'Schmaler Rand, Ort und Bildnummer.', vars: ['Weiß', 'Creme'],
     build(n, A, o) {
-      const sl = [], deco = [], ink = '#3a3226';
+      const sl = [], deco = [], ink = '#3a3226', P = pager(n, o, 3);
       for (let i = 0; i < n; i++) {
-        sl.push(S(i + .025, .025, .95, A - .09));
+        const k = P(i), y1 = A - .09;
+        if (k === 0) sl.push(S(i + .025, .025, .95, y1 - .025));
+        else if (k === 1) { const h = (y1 - .05) / 2; sl.push(S(i + .025, .025, .95, h), S(i + .025, .05 + h, .95, h)); }
+        else sl.push(S(i + .025, .025, .6, y1 - .025), S(i + .645, .025, .33, (y1 - .05) / 2), S(i + .645, .05 + (y1 - .05) / 2, .33, (y1 - .05) / 2));
         deco.push(TX('o' + i, i + .14, A - .032, ['Rom, 2026', 'Lissabon', 'Kopenhagen', 'Wien', 'Paris'][i % 5], { font: 'Caveat', size: .03, color: ink }), TX('n' + i, i + .93, A - .032, String(i + 1).padStart(2, '0'), { font: 'Special Elite', size: .022, color: ink }));
       }
       return { slots: sl, deco, bg: { c1: o.v ? '#efe8da' : '#ffffff', pattern: o.v ? 'paper' : 'none' } };
@@ -598,7 +689,7 @@ export const TEMPLATES = [
     } },
 
   /* ---------- Formen ---------- */
-  { id: 'circles', cat: 'shape', name: 'Kreise', desc: 'Runde Ausschnitte mit Rand.', vars: ['Welle', 'Groß & klein', 'Verschieden'],
+  { id: 'circles', noMirror: true, cat: 'shape', name: 'Kreise', desc: 'Runde Ausschnitte mit Rand.', vars: ['Welle', 'Groß & klein', 'Verschieden'],
     build(n, A, o) {
       const sl = [], B = { shape: 'circle', border: .02, shadow: true };
       if (o.v === 0) { const c = n + 1; for (let i = 0; i < c; i++) sl.push(C(.5 + i * (n - 1) / Math.max(1, c - 1), A * (i % 2 ? .6 : .4), .62, .62, B)); }
@@ -606,28 +697,28 @@ export const TEMPLATES = [
       else { const r = seeded(21 + o.seed * 3), c = 2 * n; for (let i = 0; i < c; i++) { const d = .3 + r() * .4; sl.push(C((i + .5) * n / c, d / 2 + .05 + r() * (A - d - .1), d, d, B)); } }
       return { slots: sl, bg: { c1: '#ffffff' } };
     } },
-  { id: 'arches', cat: 'shape', name: 'Bögen', desc: 'Fotos in Bogenform.', vars: ['Reihe', 'Gestaffelt'],
+  { id: 'arches', noMirror: true, cat: 'shape', name: 'Bögen', desc: 'Fotos in Bogenform.', vars: ['Reihe', 'Gestaffelt'],
     build(n, A, o) {
       const sl = [];
       if (!o.v) for (let i = 0; i < n; i++) sl.push(S(i + .15, A * .12, .7, A * .78, { shape: 'arch' }));
       else for (let i = 0; i < 2 * n - 1; i++) sl.push(S(.26 + i * .5, i % 2 ? A * .3 : A * .06, .48, .78, { shape: 'arch', shadow: true }));
       return { slots: sl, bg: { c1: '#f1e7da' } };
     } },
-  { id: 'hearts', cat: 'shape', name: 'Herzen', desc: 'Fotos in Herzform.', vars: ['Reihe', 'Verstreut'],
+  { id: 'hearts', noMirror: true, cat: 'shape', name: 'Herzen', desc: 'Fotos in Herzform.', vars: ['Reihe', 'Verstreut'],
     build(n, A, o) {
       const sl = [];
       if (!o.v) for (let i = 0; i < n; i++) sl.push(C(i + .5, A / 2, .78, .7, { shape: 'heart', shadow: true }));
       else { const r = seeded(31 + o.seed), c = 2 * n; for (let i = 0; i < c; i++) sl.push(C((i + .5) * n / c, A * (.3 + r() * .4), .46, .41, { shape: 'heart', rot: (r() - .5) * 24, shadow: true })); }
       return { slots: sl, bg: { c1: '#f7e1e6' } };
     } },
-  { id: 'blobs', cat: 'shape', name: 'Organisch', desc: 'Weiche, freie Formen.', vars: ['Welle', 'Reihe'],
+  { id: 'blobs', noMirror: true, cat: 'shape', name: 'Organisch', desc: 'Weiche, freie Formen.', vars: ['Welle', 'Reihe'],
     build(n, A, o) {
       const sl = [];
       if (!o.v) { const c = n + 1; for (let i = 0; i < c; i++) sl.push(C(.5 + i * (n - 1) / Math.max(1, c - 1), A * (i % 2 ? .62 : .38), .64, .64, { shape: 'blob', rot: i * 40 })); }
       else for (let i = 0; i < n; i++) sl.push(C(i + .5, A / 2, .82, .82, { shape: 'blob', rot: i * 70 }));
       return { slots: sl, bg: { c1: '#e9efe6' } };
     } },
-  { id: 'mix', cat: 'shape', name: 'Formen-Mix', desc: 'Kreis, Bogen, Herz und Stern im Wechsel.', vars: ['Bunt', 'Ruhig'],
+  { id: 'mix', noMirror: true, cat: 'shape', name: 'Formen-Mix', desc: 'Kreis, Bogen, Herz und Stern im Wechsel.', vars: ['Bunt', 'Ruhig'],
     build(n, A, o) {
       const K = o.v ? ['circle', 'arch', 'round'] : ['circle', 'arch', 'heart', 'star', 'blob', 'round'], c = n + 1, sl = [];
       for (let i = 0; i < c; i++) sl.push(C(.5 + i * (n - 1) / Math.max(1, c - 1), A * (i % 2 ? .6 : .4), .58, .58 * (K[i % K.length] === 'arch' ? 1.25 : 1), { shape: K[i % K.length], radius: 12, rot: o.v ? 0 : (i % 2 ? 6 : -6), shadow: true }));
@@ -639,7 +730,7 @@ export const tplDef = id => byId[id];
 
 /* ---------- Vorschau-Grafik direkt aus dem Bauplan ---------- */
 export function tplSVG(id, v = 0, n = 3) {
-  const T = byId[id], A = 1.25, U = 40, L = T.build(n, A, { v, g: T.gap ?? .025, seed: 0, k: 6 }), W = n * U, H = A * U;
+  const T = byId[id], A = 1.25, U = 40, L = vary(T.build(n, A, { v, g: T.gap ?? .025, seed: 0, k: 6, mix: true }), n, { seed: 0, mix: true }, T), W = n * U, H = A * U;
   const ph = 'var(--muted)', ac = 'var(--accent)';
   let s = `<defs><linearGradient id="pg${id}${v}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${W}" y2="${H}"><stop offset="0" stop-color="#e08a5c"/><stop offset=".5" stop-color="#7a5b86"/><stop offset="1" stop-color="#2f4a6b"/></linearGradient></defs>`;
   s += `<rect width="${W}" height="${H}" fill="${L.bg?.c1 || 'var(--line)'}"/>`;
@@ -704,12 +795,12 @@ function countGroups(slots) { const s = new Set(); slots.forEach((o, j) => s.add
 export function layout(fitSlides) {
   const t = state.tpl; if (!t || !byId[t.kind]) return;
   const T = byId[t.kind], { W, H } = dims(), A = H / W, photos = orderedPhotos(), k = photos.length;
-  const o = n => ({ v: t.v, g: t.gap, seed: t.seed, k });
+  const o = n => ({ v: t.v, g: t.gap, seed: t.seed, k, mix: t.uniform !== true });
   let n = state.slides;
   // nur Slides ergänzen, solange dadurch wirklich mehr Felder entstehen
   if (fitSlides) { const cnt = m => countGroups(T.build(m, A, o(m)).slots); let m = n; while (m < 20 && cnt(m) < k) m++; if (cnt(m) > cnt(n)) n = m; }
   state.slides = n;
-  const L = T.build(n, A, o(n));
+  const L = vary(T.build(n, A, o(n)), n, o(n), T);
   const oldDeco = new Map(state.layers.filter(l => l.tplKey).map(l => [l.tplKey, l]));
   const others = state.layers.filter(l => !l.tplKey && !(l.type === 'image' && (!l.srcId || l.dupOf)) && !photos.includes(l) && !(l.type === 'image' && l.grp && photos.some(p => p.grp === l.grp)));
   const groupPhoto = new Map(); let next = 0;

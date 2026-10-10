@@ -512,6 +512,7 @@ function panelTemplates() {
     <div class="vars">${def.vars.map((vn, i) => `<button class="var" data-tplvar="${i}" aria-pressed="${t.v === i}">${tplSVG(def.id, i)}<span>${vn}</span></button>`).join('')}</div>
     ${slider('tp.gap', 'Abstand', 0, 8, .1, 'd1', (def.gap ?? .025) * 100, 100)}${slider('tp.rad', 'Ecken', 0, 40, 1, 'n', 0)}
     <div class="row"><span class="note">Schatten</span><div class="chips">${[['tpl', 'Vorlage'], ['on', 'An'], ['off', 'Aus']].map(([k, lb]) => chip(`data-tplshadow="${k}"`, lb, (t.shadow == null ? 'tpl' : t.shadow ? 'on' : 'off') === k)).join('')}</div></div>
+    ${def.noMirror ? '' : `<div class="row"><span class="note">Seiten</span><div class="chips">${chip('data-tplmix="mix"', 'Abwechslungsreich', !t.uniform)}${chip('data-tplmix="uni"', 'Einheitlich', !!t.uniform)}</div>${t.uniform ? '' : btn('tplReroll', 'Neu würfeln')}</div>`}
     <div class="row"><span class="note">Leere Felder</span><div class="chips">${chip('data-tplfill="ph"', 'Platzhalter', t.fill !== 'repeat')}${chip('data-tplfill="repeat"', 'Fotos wiederholen', t.fill === 'repeat')}</div></div>
     ${nPh ? `<p class="note"><b>${nPh} leere${nPh === 1 ? 's Feld' : ' Felder'}</b> – tippe auf ein „+“ oder <label class="linkish" for="fileIn">wähle Fotos</label>, sie werden der Reihe nach eingesetzt.</p>` : ''}
   </div>` : `<p class="note">Wähle eine Vorlage – leere Felder füllst du danach per Antippen. Nochmal tippen wechselt die Variante.</p>`;
@@ -725,6 +726,7 @@ panel.addEventListener('click', async e => {
   else if (d.tplvar) { applyTemplate(state.tpl.kind, +d.tplvar); fit(); commit(); }
   else if (d.tplcat) { ui.tplCat = d.tplcat; renderPanel(); }
   else if (d.tplshadow) { state.tpl.shadow = d.tplshadow === 'tpl' ? null : d.tplshadow === 'on'; layout(false); commit(); }
+  else if (d.tplmix) { state.tpl.uniform = d.tplmix === 'uni'; layout(false); commit(); }
   else if (d.tplfill) { state.tpl.fill = d.tplfill; layout(false); commit(); }
   else if (d.lookcat) { ui.lookCat = d.lookcat; renderPanel(); }
   else if (d.look) { const was = l.params.look; l.params.look = d.look; if (LOOKS[d.look].stamp && was !== d.look) l.params.stamp = true; if (!LOOKS[d.look].stamp && LOOKS[was]?.stamp) l.params.stamp = false; commit(); }
@@ -793,6 +795,7 @@ function action(a, l) {
     case 'pick': ui.pick = !ui.pick; renderPanel(); updateTop(); return;
     case 'rot90': { const a0 = cropAspect(l), h0 = l.w / a0; l.rot90 = (l.rot90 + 1) % 4; if (l.crop.ratio === 'orig') l.w = h0; resetGeoEdits(l); commit(); return; }
     case 'flip': l.flip = !l.flip; resetGeoEdits(l); commit(); return;
+    case 'tplReroll': state.tpl.seed = (state.tpl.seed || 0) + 1; layout(false); commit(); toast('Seiten neu gewürfelt'); return;
     case 'tplShuffle': shufflePhotos(); commit(); toast('Fotos neu gemischt'); return;
     case 'tplRelease': releaseTemplate(); commit(); toast('Vorlage gelöst – alles frei verschiebbar'); return;
     case 'cropReset': l.crop = { ratio: 'orig', zoom: 1, px: .5, py: .5 }; l.rot = 0; P.persp = { v: 0, h: 0 }; commit(); return;
