@@ -122,9 +122,9 @@ export function tapeType(fill) {
   if (r > g && g > b && r - b > 25 && r - b < 70 && r > 215) return 'masking';
   return 'washi';
 }
-function tapeCanvas(W, H, fill, seed) {
-  return memo(`tape|${W}|${H}|${fill}|${seed}`, () => {
-    const type = tapeType(fill), cv = canvas(W, H), x = cv.getContext('2d'), img = x.createImageData(W, H), P = img.data, r = rng(seed), [cr, cg, cb] = hex(fill), s = seed * 7 + 3;
+function tapeCanvas(W, H, fill, seed, kind, pattern) {
+  return memo(`tape|${W}|${H}|${fill}|${seed}|${kind}|${pattern}`, () => {
+    const type = kind || tapeType(fill), cv = canvas(W, H), x = cv.getContext('2d'), img = x.createImageData(W, H), P = img.data, r = rng(seed), [cr, cg, cb] = hex(fill), s = seed * 7 + 3;
     const tearDepth = H * (type === 'clear' ? .07 : .16), sl = (r() - .5) * H * .35, sr = (r() - .5) * H * .35;
     const prof = (y, side) => { const v = y / H;
       if (type === 'clear') { const p = H / 8.5, tt = ((y / p + (side ? .37 : 0)) % 1); return tearDepth * (1 - Math.abs(tt * 2 - 1)) + H * .015 * vnoise(y / (H * .05), side, s); }
@@ -132,7 +132,7 @@ function tapeCanvas(W, H, fill, seed) {
     const xl = new Float32Array(H), xr = new Float32Array(H);
     for (let y = 0; y < H; y++) { const v = y / H; xl[y] = H * .05 + Math.max(0, sl) - sl * v + prof(y, 0); xr[y] = W - H * .05 - Math.max(0, -sr) - sr * v - prof(y, 1); }
     const creases = []; for (let k = 0, n = type === 'clear' ? 1 : Math.floor(r() * 3); k < n; k++) { const a = (90 + (r() - .5) * 70) * Math.PI / 180; creases.push([W * (.2 + r() * .6), Math.cos(a), Math.sin(a), r() < .5 ? 1 : -1]); }
-    const pat = type === 'washi' ? Math.floor(r() * 4) : 0, sheen = W * (.2 + r() * .6), fib = H * .06;
+    const pr0 = Math.floor(r() * 4), pat = type === 'washi' ? (pattern != null ? pattern : pr0) : 0, sheen = W * (.2 + r() * .6), fib = H * .06;
     for (let y = 0; y < H; y++) for (let x2 = 0; x2 < W; x2++) {
       const o = (y * W + x2) * 4, edgeT = Math.min(y + .5, H - y - .5), dL = x2 - xl[y], dR = xr[y] - x2;
       let cov = cl(Math.min(dL, dR, edgeT - (type === 'clear' ? 0 : .6 * vnoise(x2 / 3, y > H / 2 ? 1 : 0, s + 9))) + .5);
@@ -168,7 +168,7 @@ function tapeCanvas(W, H, fill, seed) {
 const quant = v => v < 64 ? Math.max(6, Math.round(v)) : Math.round(v / 8) * 8;
 export function drawTapeReal(c, l, x, y, w, h) {
   const sc = devScale(c); let W = quant(Math.min(1100, w * sc)); const H = Math.max(4, Math.round(W * h / w));
-  const cv = tapeCanvas(W, H, l.fill, (l.id | 0) % 9973);
+  const cv = tapeCanvas(W, H, l.fill, ((l.id | 0) + (l.seed || 0) * 7919) % 99991, l.tape, l.pattern);
   c.save(); c.shadowColor = 'rgba(0,0,0,.2)'; c.shadowBlur = Math.max(1, H * .1); c.shadowOffsetY = Math.max(.5, H * .035); c.drawImage(cv, x, y, w, h); c.restore();
 }
 export function drawClipReal(c, l, x, y, w, h) {
@@ -235,7 +235,7 @@ function smoothPts(p, steps) {
 /* Filzstift: leicht zitternde Linie mit wechselnder Strichstärke */
 export function drawDoodle(c, l, x, y, w, h, sw) {
   const def = DOODLES[l.kind]; if (!def) return false;
-  const r = rng((l.id | 0) * 31 + 7), J = Math.min(w, h) * .012;
+  const r = rng((l.id | 0) * 31 + 7 + (l.seed || 0) * 1013), J = Math.min(w, h) * .012;
   c.save(); c.shadowColor = 'transparent'; c.strokeStyle = l.fill; c.lineCap = 'round'; c.lineJoin = 'round';
   for (const st of def()) {
     let pts = st.p.map(([u, v]) => [x + u * w + (r() - .5) * J * 2, y + v * h + (r() - .5) * J * 2]);
@@ -258,3 +258,10 @@ export function doodleSVG(k) {
   return def().map(st => { const p = (st.sharp ? st.p : smoothPts(st.p, 3)).map(([u, v]) => `${(4 + u * 32).toFixed(1)} ${(4 + v * 32).toFixed(1)}`);
     return `<path d="M${p.join('L')}" fill="none" stroke="${st.marker ? '#ffe066' : 'var(--accent)'}" stroke-width="${st.marker ? 12 : 2.2 * (st.w || 1)}" stroke-linecap="round" stroke-linejoin="round" ${st.marker ? 'opacity=".7"' : ''}${st.dash ? ' stroke-dasharray="3 3"' : ''}/>`; }).join('');
 }
+
+/* Auswahl für die Oberfläche */
+export const TAPE_KINDS = [['', 'Automatisch'], ['masking', 'Malerkrepp'], ['clear', 'Tesafilm'], ['washi', 'Washi']];
+export const TAPE_PATTERNS = [[0, 'Uni'], [1, 'Streifen'], [2, 'Punkte'], [3, 'Karo']];
+export const TAPE_COLORS = ['#efe3c4', '#f4f4ee', '#f2c6c2', '#c9dfe6', '#d8e6c8', '#f6d98b', '#d9c6ec', '#f3a6a0', '#a9c7e8', '#2b2b2b'];
+export const CLIP_COLORS = [['#9aa0a6', 'Silber'], ['#d4af37', 'Gold'], ['#e04a4a', 'Rot'], ['#3b6fd8', 'Blau'], ['#f29bb5', 'Rosa'], ['#3fa36b', 'Grün'], ['#222222', 'Schwarz'], ['#f2f2f2', 'Weiß']];
+export const BINDER_COLORS = [['#1c1c1c', 'Schwarz'], ['#b3261e', 'Rot'], ['#1f4fa8', 'Blau'], ['#2f7d4f', 'Grün'], ['#e58fae', 'Rosa'], ['#e8c547', 'Gelb'], ['#f0f0f0', 'Weiß']];

@@ -4,7 +4,7 @@ import { $, clamp, clone, de, esc, state, ui, sources, cache, ids, newId, dims, 
 import { mk, makeAux, processImage, prepare, curveFn, pickHealSource, wbFromPoint, LEAKS } from './process.js';
 import { flags, getCut, hasCut, loadScaled, orientCanvas, cropAspect, cropRect, boxOf, drawScene, ensureCache, releaseAux, cacheKey, drawSample, SHAPES, BG_PATTERNS, FRAMES } from './scene.js';
 import { newImageLayer, newTextLayer, newShapeLayer, coverSlide, coverAll, computeBox } from './layers.js';
-import { isDoodle, doodleSVG } from './props.js';
+import { isDoodle, doodleSVG, tapeType, TAPE_KINDS, TAPE_PATTERNS, TAPE_COLORS, CLIP_COLORS, BINDER_COLORS } from './props.js';
 import { TEMPLATES, TPL_CATS, tplSVG, tplDef, applyTemplate, layout, relink, shufflePhotos, releaseTemplate } from './templates.js';
 import * as store from './store.js';
 
@@ -419,8 +419,8 @@ function target(ns) {
     case 'm': return P.masks[ui.maskSel]; case 'b': return P.blur; case 'pv': return P.persp; case 'ui': return ui; case 'bg': return state.bg; case 'tp': return state.tpl;
   }
 }
-function getVal(k) { const [ns, f] = k.split('.'); if (k === 'l.wpct') return Math.round(selLayer().w / dims().W * 100); const t = target(ns); return t ? t[f] : 0; }
-function setVal(k, v) { const [ns, f] = k.split('.'); if (k === 'l.wpct') { selLayer().w = v / 100 * dims().W; return; } const t = target(ns); if (t) t[f] = v; }
+function getVal(k) { const [ns, f] = k.split('.'); if (k === 'l.wpct') return Math.round(selLayer().w / dims().W * 100); if (k === 'l.wprop') return Math.round(selLayer().w); const t = target(ns); return t ? t[f] : 0; }
+function setVal(k, v) { const [ns, f] = k.split('.'); if (k === 'l.wpct') { selLayer().w = v / 100 * dims().W; return; } if (k === 'l.wprop') { const l = selLayer(), f2 = v / l.w; l.w = v; l.h *= f2; return; } const t = target(ns); if (t) t[f] = v; }
 function slider(key, label, min, max, step, fmt = 'signed', def = 0, scale = 1, cls = '') {
   const raw = getVal(key) ?? def, val = +(raw * scale).toFixed(4), id = 's_' + key.replace(/\W/g, '_');
   return `<div class="sl${val !== def ? ' changed' : ''}${cls ? ' ' + cls : ''}"><div class="sl-top"><label for="${id}">${label}</label><button class="sl-reset" data-reset aria-label="${label} zurücksetzen" title="Zurücksetzen">↺</button><output>${FMT[fmt](val)}</output></div>
@@ -444,11 +444,15 @@ panel.addEventListener('input', e => {
   else if (t.id === 'capIn') { l.caption = t.value; requestRender(); }
   else if (t.matches('input[type=color][data-col]')) { applyColor(t.dataset.col, t.value); requestRender(); }
 });
+panel.addEventListener('input', e => { if (e.target.id !== 'tplSearch') return; ui.tplQuery = e.target.value; const q = ui.tplQuery.trim().toLowerCase();
+  panel.querySelectorAll('.tpl[data-q]').forEach(b => b.hidden = !!q && !b.dataset.q.includes(q)); });
+panel.addEventListener('toggle', e => { if (e.target.id === 'tplStyle') ui.tplStyleOpen = e.target.open; }, true);
 panel.addEventListener('change', e => {
   const t = e.target, l = selLayer();
   if (t.id === 'projName') { ui.projectName = t.value.trim() || 'Mein Karussell'; scheduleSave(); return; }
   if (t.id === 'stampDate') { const [y, m, d] = t.value.split('-').map(Number); if (y) { const old = new Date(l.stampMs); l.stampMs = new Date(y, m - 1, d, old.getHours(), old.getMinutes()).getTime(); commit(); } return; }
   if (t.id === 'presetFile') { importPresets(t.files[0]); t.value = ''; return; }
+  if (t.matches('input[type=color]')) pushRecentColor(t.value);
   if (t.matches('input[type=range],textarea,input[type=color],#capIn')) { if (flags.draft) { flags.draft = false; requestRender(); } pushHistory(); refreshAfterCommit(); }
 });
 panel.addEventListener('dblclick', e => {
@@ -462,15 +466,24 @@ function syncPanelValues() {
 }
 function applyColor(target, v) {
   const l = selLayer();
+  if (/^bg/.test(target) && state.tpl) state.tpl.bgLock = true;
+  if (target.startsWith('tpl')) { state.tpl[{ tplFrame: 'frameColor', tplText: 'textColor', tplInk: 'ink' }[target]] = v; layout(false); return; }
   if (target === 'bg1') state.bg.c1 = v; else if (target === 'bg2') state.bg.c2 = v;
   else if (target === 'frame') l.borderColor = v; else if (target === 'text') l.color = v; else if (target === 'textbg') l.bgColor = v; else if (target === 'stroke') l.strokeColor = v; else if (target === 'fill') l.fill = v;
 }
 const chip = (attrs, label, on) => `<button class="chip" ${attrs} aria-pressed="${!!on}">${label}</button>`;
 const sw = (target, c, on) => `<button class="sw" style="--c:${c}" data-col-set="${target}" data-v="${c}" aria-pressed="${!!on}" aria-label="Farbe ${c}"></button>`;
-const swatches = (target, list, cur) => `<div class="swatches">${list.map(c => sw(target, c, cur === c)).join('')}<input type="color" class="color-in" data-col="${target}" value="${/^#[0-9a-f]{6}$/i.test(cur) ? cur : '#ffffff'}" aria-label="Eigene Farbe"></div>`;
+const swatches = (target, list, cur) => `<div class="swatches">${LS.get('recentColors', []).filter(c => !list.includes(c)).slice(0, 4).map(c => sw(target, c, cur === c).replace('class="sw"', 'class="sw recent"')).join('')}${list.map(c => sw(target, c, cur === c)).join('')}<input type="color" class="color-in" data-col="${target}" value="${/^#[0-9a-f]{6}$/i.test(cur) ? cur : '#ffffff'}" aria-label="Eigene Farbe"></div>`;
 const toggle = (key, label, on) => `<div class="toggle"><span>${label}</span><button class="switch" role="switch" data-tog="${key}" aria-checked="${!!on}" aria-label="${label.replace(/<[^>]+>/g, '')}"></button></div>`;
 const group = (title, inner) => `<div class="group">${title ? `<span class="sec-label">${title}</span>` : ''}${inner}</div>`;
 const btn = (act, label, cls = 'ghost', extra = '') => `<button class="btn ${cls} small" data-act2="${act}" ${extra}>${label}</button>`;
+
+/* Kleine Merkliste im Browser (Favoriten, zuletzt benutzt, eigene Farben) */
+const LS = { get(k, d) { try { return JSON.parse(localStorage.getItem('streifzug.' + k)) ?? d; } catch { return d; } }, set(k, v) { try { localStorage.setItem('streifzug.' + k, JSON.stringify(v)); } catch {} } };
+const pushList = (k, v, max = 10) => LS.set(k, [v, ...LS.get(k, []).filter(x => x !== v)].slice(0, max));
+const pushRecentColor = c => { if (/^#[0-9a-f]{6}$/i.test(c)) pushList('recentColors', c.toLowerCase(), 8); };
+const ALIGN_IC = { l: '<path d="M4 3v18M8 7h10v4H8zM8 14h6v4H8z"/>', c: '<path d="M12 3v18M6 7h12v4H6zM8 14h8v4H8z"/>', r: '<path d="M20 3v18M6 7h10v4H6zM10 14h6v4h-6z"/>', t: '<path d="M3 4h18M7 8h4v10H7zM14 8h4v6h-4z"/>', m: '<path d="M3 12h18M7 6h4v12H7zM14 8h4v8h-4z"/>', b: '<path d="M3 20h18M7 6h4v10H7zM14 10h4v6h-4z"/>' };
+const alignRow = () => group('Auf der Slide ausrichten', `<div class="align-row">${[['l', 'Links'], ['c', 'Waagerecht mittig'], ['r', 'Rechts'], ['t', 'Oben'], ['m', 'Senkrecht mittig'], ['b', 'Unten']].map(([k, lb]) => `<button class="icon-btn" data-al="${k}" aria-label="${lb}" title="${lb}">${sv(ALIGN_IC[k])}</button>`).join('')}</div>`);
 
 /* ---------- Panels ---------- */
 function renderPanel() {
@@ -505,20 +518,39 @@ function drawSlideThumbs() {
   const { W, H } = dims();
   panel.querySelectorAll('#slideStrip canvas').forEach((cnv, k) => { const x = cnv.getContext('2d'), s = cnv.width / W; x.setTransform(s, 0, 0, s, -k * W * s, 0); drawScene(x, { clean: true }); });
 }
+const TPL_TAGS = { polaroid: 'polaroid sofortbild', instax: 'polaroid sofortbild', scrapbook: 'polaroid tape klebeband', pinned: 'büroklammer klammer tape klebeband', doodleDiary: 'washi tape klebeband herz doodle', doodleOverlay: 'doodle marker herz', scribble: 'doodle', moodboard: 'doodle', hearts: 'liebe valentinstag', booth: 'photobooth fotobox', film: 'analog negativ', filmV: 'analog negativ', contact: 'analog negativ', poster: 'kino film movie', ovalNoir: 'kino film', pano: 'panorama landschaft', spread: 'panorama' };
+const TPL_STYLE_KEYS = ['tilt', 'frame', 'frameColor', 'font', 'textColor', 'doodles', 'ink'];
 function panelTemplates() {
-  const t = state.tpl, def = t && tplDef(t.kind), cat = ui.tplCat || 'all';
-  const list = TEMPLATES.filter(T => cat === 'all' || T.cat === cat), nPh = state.layers.filter(l => l.type === 'image' && !l.srcId).length;
+  const t = state.tpl, def = t && tplDef(t.kind), cat = ui.tplCat || 'all', favs = LS.get('tplFav', []), recent = LS.get('tplRecent', []), q = (ui.tplQuery || '').toLowerCase();
+  let list = cat === 'fav' ? TEMPLATES.filter(T => favs.includes(T.id)) : cat === 'recent' ? recent.map(id => tplDef(id)).filter(Boolean) : TEMPLATES.filter(T => cat === 'all' || T.cat === cat);
+  const nPh = state.layers.filter(l => l.type === 'image' && !l.srcId).length, styled = t && TPL_STYLE_KEYS.some(k => t[k] != null && t[k] !== 0);
   const cur = def ? `<div class="tpl-cur">
-    <div class="row"><b class="grow">${def.name}</b>${btn('tplShuffle', 'Fotos mischen')}${btn('tplRelease', 'Lösen')}</div>
+    <div class="row"><b class="grow">${def.name}</b>${btn('tplFav', favs.includes(def.id) ? '★ Gemerkt' : '☆ Merken')}${btn('tplShuffle', 'Fotos mischen')}${btn('tplRelease', 'Lösen')}</div>
     <div class="vars">${def.vars.map((vn, i) => `<button class="var" data-tplvar="${i}" aria-pressed="${t.v === i}">${tplSVG(def.id, i)}<span>${vn}</span></button>`).join('')}</div>
     ${slider('tp.gap', 'Abstand', 0, 8, .1, 'd1', (def.gap ?? .025) * 100, 100)}${slider('tp.rad', 'Ecken', 0, 40, 1, 'n', 0)}
     <div class="row"><span class="note">Schatten</span><div class="chips">${[['tpl', 'Vorlage'], ['on', 'An'], ['off', 'Aus']].map(([k, lb]) => chip(`data-tplshadow="${k}"`, lb, (t.shadow == null ? 'tpl' : t.shadow ? 'on' : 'off') === k)).join('')}</div></div>
     ${def.fixed ? '' : `<div class="row"><span class="note">Seiten</span><div class="chips">${chip('data-tplmix="mix"', 'Abwechslungsreich', !t.uniform)}${chip('data-tplmix="uni"', 'Einheitlich', !!t.uniform)}</div>${t.uniform ? '' : btn('tplReroll', 'Neu würfeln')}</div>`}
     <div class="row"><span class="note">Leere Felder</span><div class="chips">${chip('data-tplfill="ph"', 'Platzhalter', t.fill !== 'repeat')}${chip('data-tplfill="repeat"', 'Fotos wiederholen', t.fill === 'repeat')}</div></div>
+    <details class="more" id="tplStyle"${ui.tplStyleOpen ? ' open' : ''}><summary>Stil anpassen${styled ? ' <span class="dot-on">geändert</span>' : ''}</summary>
+      ${slider('tp.tilt', 'Fotos neigen', 0, 12, .5, 'deg', 0)}
+      <span class="sec-label">Rahmen um die Fotos</span><div class="chips">${[['', 'Vorlage'], ['0', 'Keiner'], ['0.012', 'Fein'], ['0.025', 'Mittel'], ['0.045', 'Breit']].map(([k, lb]) => chip(`data-tplframe="${k}"`, lb, String(t.frame ?? '') === k)).join('')}</div>
+      ${swatches('tplFrame', FRAME_COLORS, t.frameColor)}
+      <span class="sec-label">Schrift der Vorlagen-Texte</span>
+      <div class="chips scroll">${chip('data-tplfont=""', 'Vorlage', !t.font)}${FONTS.map(([f, lb, wgt]) => `<button class="fontchip" data-tplfont="${f}" aria-pressed="${t.font === f}"><span class="aa" style="font-family:'${f}';font-weight:${wgt}">Aa</span><span>${lb}</span></button>`).join('')}</div>
+      ${swatches('tplText', TEXT_COLORS, t.textColor)}
+      <span class="sec-label">Kritzeleien</span><div class="chips">${[['', 'Vorlage'], ['off', 'Keine'], ['few', 'Ein paar'], ['lots', 'Viele']].map(([k, lb]) => chip(`data-tpldood="${k}"`, lb, (t.doodles || '') === k)).join('')}</div>
+      ${t.doodles !== 'off' ? swatches('tplInk', TEXT_COLORS, t.ink) : ''}
+      <div class="row">${btn('tplStyleReset', 'Stil zurücksetzen')}${t.bgLock ? btn('tplBgReset', 'Vorlagen-Hintergrund') : ''}</div>
+      <p class="note">Der Stil bleibt erhalten, wenn du eine andere Vorlage wählst.</p>
+    </details>
     ${nPh ? `<p class="note"><b>${nPh} leere${nPh === 1 ? 's Feld' : ' Felder'}</b> – tippe auf ein „+“ oder <label class="linkish" for="fileIn">wähle Fotos</label>, sie werden der Reihe nach eingesetzt.</p>` : ''}
   </div>` : `<p class="note">Wähle eine Vorlage – leere Felder füllst du danach per Antippen. Nochmal tippen wechselt die Variante.</p>`;
-  return `${cur}<div class="chips scroll">${TPL_CATS.map(([k, lb]) => chip(`data-tplcat="${k}"`, lb, cat === k)).join('')}</div>
-  <div class="tpl-grid">${list.map(T => { const on = t && t.kind === T.id; return `<button class="tpl${on ? ' on' : ''}" data-tpl="${T.id}">${tplSVG(T.id, on ? t.v : 0)}<b>${T.name}</b><span>${T.vars.length} Variante${T.vars.length === 1 ? '' : 'n'} · ${T.desc}</span></button>`; }).join('')}</div>`;
+  const cats = [['all', 'Alle'], ['fav', '★ Favoriten'], ['recent', 'Zuletzt'], ...TPL_CATS.slice(1)];
+  return `${cur}<input type="search" class="name tpl-search" id="tplSearch" placeholder="Vorlage suchen, z. B. Polaroid, Herz, Magazin …" value="${esc(ui.tplQuery || '')}" aria-label="Vorlage suchen">
+  <div class="chips scroll">${cats.map(([k, lb]) => chip(`data-tplcat="${k}"`, lb, cat === k)).join('')}</div>
+  ${!list.length ? `<p class="note">${cat === 'fav' ? 'Noch keine Favoriten – wähle eine Vorlage und tippe auf „☆ Merken“.' : 'Noch keine zuletzt benutzten Vorlagen.'}</p>` : ''}
+  <div class="tpl-grid">${list.map(T => { const on = t && t.kind === T.id, hay = (T.name + ' ' + T.desc + ' ' + T.vars.join(' ') + ' ' + T.id + ' ' + (TPL_CATS.find(c => c[0] === T.cat) || ['', ''])[1] + ' ' + (TPL_TAGS[T.id] || '')).toLowerCase();
+    return `<button class="tpl${on ? ' on' : ''}" data-tpl="${T.id}" data-q="${esc(hay)}"${q && !hay.includes(q) ? ' hidden' : ''}>${tplSVG(T.id, on ? t.v : 0)}<b>${favs.includes(T.id) ? '★ ' : ''}${T.name}</b><span>${T.vars.length} Variante${T.vars.length === 1 ? '' : 'n'} · ${T.desc}</span></button>`; }).join('')}</div>`;
 }
 function panelSlot(l) {
   return `<p class="note">Ein leeres Feld der Vorlage. Setze ein Foto ein – mehrere ausgewählte Fotos füllen die nächsten leeren Felder.</p>
@@ -539,7 +571,9 @@ function panelLayers() {
 const EMOJI = ['☀️', '🌊', '❤️', '✨', '📍', '🌸', '🍂', '⭐', '🌙', '📷', '🎞️', '🍦', '🐚', '⛵', '🌿', '🔥', '🦋', '🌈', '💌', '🎉'];
 function panelElements() {
   const el = ([k, lb]) => `<button class="el" data-addshape="${k}"><svg viewBox="0 0 40 40" aria-hidden="true">${shapeIcon(k)}</svg><span>${lb}</span></button>`;
-  return `${group('Kritzeleien', `<div class="el-grid">${SHAPES.filter(([k]) => isDoodle(k)).map(el).join('')}</div>`)}
+  const rec = LS.get('recentEl', []).map(k => k.startsWith('e:') ? `<button class="emo" data-emoji="${k.slice(2)}">${k.slice(2)}</button>` : SHAPES.find(x => x[0] === k) ? el(SHAPES.find(x => x[0] === k)) : '').join('');
+  return `${rec ? group('Zuletzt benutzt', `<div class="el-grid recent">${rec}</div>`) : ''}
+  ${group('Kritzeleien', `<div class="el-grid">${SHAPES.filter(([k]) => isDoodle(k)).map(el).join('')}</div>`)}
   ${group('Formen & Sticker', `<div class="el-grid">${SHAPES.filter(([k]) => !isDoodle(k)).map(el).join('')}</div>`)}
   ${group('Emoji', `<div class="emoji-row">${EMOJI.map(e => `<button class="emo" data-emoji="${e}">${e}</button>`).join('')}</div>`)}
   ${group('Text-Vorlagen', `<div class="chips">${TEXT_PRESETS.map(([k, lb]) => chip(`data-addtext="${k}"`, lb, false)).join('')}</div>`)}`;
@@ -678,13 +712,13 @@ function panelImageLayer(l) {
   + (framed ? '' : group('Kante', `<div class="chips">${EDGES.map(([k, lb]) => chip(`data-edge="${k}"`, lb, (l.edge || '') === k)).join('')}</div>
     ${l.edge === 'torn' ? `<div class="chips">${[['all', 'Rundum'], ['tb', 'Oben & unten'], ['lr', 'Links & rechts']].map(([k, lb]) => chip(`data-edgesides="${k}"`, lb, (l.edgeSides || 'all') === k)).join('')}</div>` : ''}`))
   + group('Mischmodus', `<div class="chips scroll">${BLENDS.map(([k, lb]) => chip(`data-blend="${k}"`, lb, (l.blend || 'source-over') === k)).join('')}</div><span class="note">Für Doppelbelichtung: Foto über ein anderes legen, „Negativ multipl.“ oder „Aufhellen“ wählen.</span>`)
-  + `<div class="row">${btn('fillSlide', 'Slide füllen')}${btn('fillAll', 'Alle Slides füllen')}${btn('center', 'Auf Slide zentrieren')}${btn('replace', 'Foto ersetzen')}${btn('bgBlur', 'Als unscharfer Hintergrund')}</div>` + layerOrderRow(l);
+  + alignRow() + `<div class="row">${btn('fillSlide', 'Slide füllen')}${btn('fillAll', 'Alle Slides füllen')}${btn('center', 'Auf Slide zentrieren')}${btn('replace', 'Foto ersetzen')}${btn('bgBlur', 'Als unscharfer Hintergrund')}</div>` + layerOrderRow(l);
 }
 const layerOrderRow = l => `<div class="row">${btn('front', 'Nach vorn')}${btn('back', 'Nach hinten')}${btn('dup', 'Duplizieren')}${btn('lock', l.locked ? 'Entsperren' : 'Sperren')}${btn('del', 'Löschen', 'danger')}</div>`;
 function panelLayerCommon(l) {
   return group('', (l.type === 'text' ? '' : slider('l.rot', 'Drehung', -180, 180, .5, 'deg')) + slider('l.opacity', 'Deckkraft', 0, 100, 1, 'pct', 100, 100))
     + group('Mischmodus', `<div class="chips scroll">${BLENDS.map(([k, lb]) => chip(`data-blend="${k}"`, lb, (l.blend || 'source-over') === k)).join('')}</div>`)
-    + `<div class="row">${btn('center', 'Auf Slide zentrieren')}</div>` + layerOrderRow(l);
+    + alignRow() + layerOrderRow(l);
 }
 function panelText(l) {
   return `<textarea class="txt" id="txtIn" aria-label="Text" rows="2">${esc(l.text)}</textarea>
@@ -692,7 +726,7 @@ function panelText(l) {
   ${group('Schnell-Stile', `<div class="chips">${TEXT_PRESETS.map(([k, lb]) => chip(`data-tpreset="${k}"`, lb, false)).join('')}</div>`)}`;
 }
 function panelTextStyle(l) {
-  return group('', slider('l.size', 'Größe', 16, 400, 1, 'px', 110) + slider('l.rot', 'Drehung', -180, 180, .5, 'deg') + slider('l.spacing', 'Laufweite', -10, 60, 1, 'n') + slider('l.lineH', 'Zeilenabstand', .8, 2, .02, 'lh', 1.16))
+  return group('', slider('l.size', 'Größe', 16, 400, 1, 'px', 110) + slider('l.rot', 'Drehung', -180, 180, .5, 'deg') + slider('l.spacing', 'Laufweite', -10, 60, 1, 'n') + slider('l.lineH', 'Zeilenabstand', .8, 2, .02, 'lh', 1.16) + slider('l.curve', 'Bogen', -100, 100, 1, 'signed', 0) + (l.curve && l.bg !== 'none' ? '<span class="note">Bogentext gibt es nur ohne Hinterlegung.</span>' : ''))
   + group('Farbe', swatches('text', TEXT_COLORS, l.color))
   + group('Ausrichtung', `<div class="chips">${[['left', 'Links'], ['center', 'Mitte'], ['right', 'Rechts']].map(([k, lb]) => chip(`data-align="${k}"`, lb, l.align === k)).join('')}</div>`)
   + group('Hinterlegung', `<div class="chips">${[['none', 'Keine'], ['solid', 'Fläche'], ['soft', 'Halbtransparent'], ['band', 'Zeilenband'], ['beads', 'Perlen'], ['ransom', 'Ausschnitte'], ['pin', 'Orts-Pille']].map(([k, lb]) => chip(`data-tbg="${k}"`, lb, l.bg === k)).join('')}</div>
@@ -700,13 +734,24 @@ function panelTextStyle(l) {
   + group('Kontur', slider('l.stroke', 'Konturstärke', 0, 20, .5, 'n') + (l.stroke ? swatches('stroke', TEXT_COLORS, l.strokeColor) : ''))
   + toggle('upper', 'Großbuchstaben', l.upper) + toggle('glow', 'Leuchten (Neon)', l.glow) + (l.bg === 'none' ? toggle('tshadow', 'Schatten für Lesbarkeit', l.shadow) : '');
 }
+const SHAPE_FAM = { basic: ['rect', 'round', 'circle', 'frame', 'line', 'arrow', 'star', 'heart', 'sparkle', 'blob', 'arch'], prop: ['tape', 'clip', 'binder', 'paper', 'lace', 'starSticker', 'leaves', 'check', 'spiral', 'laurel'] };
+const famOf = k => isDoodle(k) || /^(scribble|corners|scribbleArrow)$/.test(k) ? 'doodle' : SHAPE_FAM.prop.includes(k) ? 'prop' : 'basic';
 function panelShape(l) {
-  const canOutline = !['line', 'arrow', 'tape', 'frame', 'paper', 'lace', 'starSticker', 'leaves', 'check', 'spiral', 'clip', 'binder', 'laurel', 'scribble', 'corners', 'scribbleArrow'].includes(l.kind) && !isDoodle(l.kind);
-  return group('Form', `<div class="chips">${SHAPES.map(([k, lb]) => chip(`data-skind="${k}"`, lb, l.kind === k)).join('')}</div>`)
-    + group('Farbe', swatches('fill', TEXT_COLORS.concat(['#f3e2b3']), l.fill))
-    + group('', slider('l.w', l.kind === 'line' ? 'Länge' : 'Breite', 20, 3000, 1, 'px') + slider('l.h', l.kind === 'line' ? 'Stärke' : 'Höhe', 2, 3000, 1, 'px')
-      + (l.kind === 'round' ? slider('l.radius', 'Eckenradius', 1, 50, 1, 'n', 18) : '') + (canOutline && l.outline || /^(frame|scribble|corners|scribbleArrow)$/.test(l.kind) ? slider('l.sw', 'Linienstärke', 2, 80, 1, 'px', 12) : ''))
-    + (canOutline ? toggle('outline', 'Nur Umriss', l.outline) : '') + toggle('shadow', 'Schatten', l.shadow);
+  const k = l.kind, fam = famOf(k), real = /^(tape|clip|binder)$/.test(k), doodle = fam === 'doodle';
+  const canOutline = fam === 'basic' && !['line', 'arrow', 'frame'].includes(k);
+  let h = group(fam === 'doodle' ? 'Kritzelei' : fam === 'prop' ? 'Requisite' : 'Form', `<div class="chips">${SHAPES.filter(([x]) => famOf(x) === fam).map(([x, lb]) => chip(`data-skind="${x}"`, lb, k === x)).join('')}</div>`);
+  if (k === 'tape') { const tt = l.tape || tapeType(l.fill);
+    h += group('Klebeband', `<div class="chips">${TAPE_KINDS.map(([x, lb]) => chip(`data-tape="${x}"`, lb, (l.tape || '') === x)).join('')}</div>
+      ${tt === 'washi' ? `<span class="sec-label">Muster</span><div class="chips">${chip('data-tpat=""', 'Zufall', l.pattern == null)}${TAPE_PATTERNS.map(([x, lb]) => chip(`data-tpat="${x}"`, lb, l.pattern === x)).join('')}</div>` : ''}
+      ${swatches('fill', TAPE_COLORS, l.fill)}<div class="row">${btn('reseed', 'Neu abreißen')}</div>`); }
+  else if (k === 'clip' || k === 'binder') h += group('Farbe', `<div class="chips">${(k === 'clip' ? CLIP_COLORS : BINDER_COLORS).map(([c, lb]) => chip(`data-fillc="${c}"`, `<i class="cdot" style="--c:${c}"></i>${lb}`, l.fill === c)).join('')}</div>`);
+  else h += group('Farbe', swatches('fill', TEXT_COLORS.concat(['#f3e2b3']), l.fill));
+  const prop = real || doodle || ['starSticker', 'laurel', 'leaves', 'spiral', 'check'].includes(k);
+  h += group('', (prop ? slider('l.wprop', 'Größe', 20, 3000, 1, 'px') : slider('l.w', k === 'line' ? 'Länge' : 'Breite', 20, 3000, 1, 'px') + slider('l.h', k === 'line' ? 'Stärke' : 'Höhe', 2, 3000, 1, 'px'))
+    + (k === 'round' ? slider('l.radius', 'Eckenradius', 1, 50, 1, 'n', 18) : '') + (canOutline && l.outline || doodle || k === 'frame' ? slider('l.sw', doodle ? 'Strichstärke' : 'Linienstärke', 2, doodle ? 40 : 80, 1, 'px', doodle ? 7 : 12) : '')
+    + slider('l.rot', 'Drehung', -180, 180, .5, 'deg'));
+  if (doodle) h += `<div class="row">${btn('reseed', 'Neu zeichnen')}</div>`;
+  return h + (canOutline ? toggle('outline', 'Nur Umriss', l.outline) : '') + (real ? '' : toggle('shadow', 'Schatten', l.shadow)) + alignRow();
 }
 
 panel.addEventListener('click', async e => {
@@ -719,19 +764,28 @@ panel.addEventListener('click', async e => {
   else if (d.colSet) { applyColor(d.colSet, d.v); commit(); }
   else if (d.tog) {
     const on = t.getAttribute('aria-checked') !== 'true', k = d.tog;
-    if (k === 'grad') state.bg.grad = on; else if (k === 'grid') { ui.grid = on; renderPanel(); requestRender(); return; }
+    if (k === 'grad') { state.bg.grad = on; if (state.tpl) state.tpl.bgLock = true; } else if (k === 'grid') { ui.grid = on; renderPanel(); requestRender(); return; }
     else if (k === 'stamp') l.params.stamp = on; else if (k === 'shadow' || k === 'tshadow') l.shadow = on; else if (k === 'upper') l.upper = on; else if (k === 'glow') l.glow = on;
     else if (k === 'outline') l.outline = on; else if (k === 'cutsmart') { ui.cutSmart = on; renderPanel(); return; } else if (k === 'cutshow') { ui.cutShow = on; renderPanel(); requestRender(); return; }
     else if (k === 'cuton') l.cut.on = on; else if (k === 'sticker') { l.sticker = on; if (on && !(l.cut && l.cut.strokes.length)) toast('Male jetzt über das Motiv – nur das wird zum Sticker'); } else if (k === 'minv') l.params.masks[ui.maskSel].inv = on;
     commit();
   }
-  else if (d.tpl) { const T = tplDef(d.tpl), v = state.tpl && state.tpl.kind === d.tpl ? (state.tpl.v + 1) % T.vars.length : 0; const n0 = state.slides;
+  else if (d.tpl) { pushList('tplRecent', d.tpl, 12); const T = tplDef(d.tpl), v = state.tpl && state.tpl.kind === d.tpl ? (state.tpl.v + 1) % T.vars.length : 0; const n0 = state.slides;
     applyTemplate(d.tpl, v); ui.sel = null; fit(); panel.dataset.key = ''; commit(); toast(`${T.name} · ${T.vars[v]}${state.slides !== n0 ? ` · ${state.slides} Slides` : ''}${layout.hiddenCount ? ` · ${layout.hiddenCount} Foto${layout.hiddenCount === 1 ? '' : 's'} ausgeblendet` : ''}`, 'Rückgängig', undo); }
   else if (d.tplvar) { applyTemplate(state.tpl.kind, +d.tplvar); fit(); commit(); }
-  else if (d.tplcat) { ui.tplCat = d.tplcat; renderPanel(); }
+  else if (d.tplcat) { ui.tplCat = d.tplcat; renderPanel(); panel.querySelector('.tpl-grid')?.scrollIntoView({ block: 'nearest' }); }
   else if (d.tplshadow) { state.tpl.shadow = d.tplshadow === 'tpl' ? null : d.tplshadow === 'on'; layout(false); commit(); }
   else if (d.tplmix) { state.tpl.uniform = d.tplmix === 'uni'; layout(false); commit(); }
   else if (d.tplfill) { state.tpl.fill = d.tplfill; layout(false); commit(); }
+  else if (d.tplframe !== undefined) { state.tpl.frame = d.tplframe === '' ? null : +d.tplframe; layout(false); commit(); }
+  else if (d.tplfont !== undefined) { state.tpl.font = d.tplfont || null; layout(false); commit(); }
+  else if (d.tpldood !== undefined) { state.tpl.doodles = d.tpldood || null; layout(false); commit(); }
+  else if (d.tape !== undefined) { l.tape = d.tape || undefined; if (d.tape === 'clear') l.fill = '#f4f4ee'; else if (d.tape === 'masking') l.fill = '#efe3c4'; else if (d.tape === 'washi' && tapeType(l.fill) !== 'washi') l.fill = '#f2c6c2'; commit(); }
+  else if (d.tpat !== undefined) { if (d.tpat === '') delete l.pattern; else l.pattern = +d.tpat; commit(); }
+  else if (d.fillc) { l.fill = d.fillc; commit(); }
+  else if (d.al) { const { W, H } = dims(), i = clamp(Math.floor(l.x / W), 0, state.slides - 1), b = boxOf(l), m = W * .04;
+    if (d.al === 'l') l.x = i * W + m + b.ow / 2; else if (d.al === 'c') l.x = (i + .5) * W; else if (d.al === 'r') l.x = (i + 1) * W - m - b.ow / 2;
+    else if (d.al === 't') l.y = m + b.oh / 2; else if (d.al === 'm') l.y = H / 2; else l.y = H - m - b.oh / 2; commit(); }
   else if (d.lookcat) { ui.lookCat = d.lookcat; renderPanel(); }
   else if (d.look) { const was = l.params.look; l.params.look = d.look; if (LOOKS[d.look].stamp && was !== d.look) l.params.stamp = true; if (!LOOKS[d.look].stamp && LOOKS[was]?.stamp) l.params.stamp = false; commit(); }
   else if (d.preset) { const pr = loadPresets()[+d.preset]; if (pr) { l.params = upgradeParams(clone(pr.params)); toast(`Preset „${pr.name}“ angewendet`); commit(); } }
@@ -749,8 +803,8 @@ panel.addEventListener('click', async e => {
   else if (d.align) { l.align = d.align; commit(); }
   else if (d.tbg) { l.bg = d.tbg; commit(); }
   else if (d.skind) { l.kind = d.skind; commit(); }
-  else if (d.bgdir) { state.bg.dir = d.bgdir; commit(); }
-  else if (d.pattern) { state.bg.pattern = d.pattern; commit(); }
+  else if (d.bgdir) { state.bg.dir = d.bgdir; if (state.tpl) state.tpl.bgLock = true; commit(); }
+  else if (d.pattern) { state.bg.pattern = d.pattern; if (state.tpl) state.tpl.bgLock = true; commit(); }
   else if (d.leak) { l.params.leakKind = +d.leak; commit(); }
   else if (d.sfmt) { l.params.stampStyle.fmt = d.sfmt; l.params.stamp = true; commit(); }
   else if (d.scol) { l.params.stampStyle.color = d.scol; l.params.stamp = true; commit(); }
@@ -760,8 +814,8 @@ panel.addEventListener('click', async e => {
   else if (d.cutmode) { ui.cutMode = d.cutmode; renderPanel(); updateTop(); }
   else if (d.bmode) { ui.brushMode = d.bmode; renderPanel(); updateTop(); }
   else if (d.blur) { l.params.blur.mode = d.blur; commit(); }
-  else if (d.addshape) { const { W, H } = dims(), s = newShapeLayer(d.addshape, (visibleSlide() + .5) * W, H / 2); state.layers.push(s); ui.tab.shape = 'form'; selectLayer(s.id); pushHistory(); }
-  else if (d.emoji) { const { W, H } = dims(), s = newTextLayer((visibleSlide() + .5) * W, H / 2, d.emoji); s.size = 220; s.shadow = false; s.font = 'Instrument Sans'; state.layers.push(s); ui.tab.text = 'stil'; selectLayer(s.id); pushHistory(); }
+  else if (d.addshape) { pushList('recentEl', d.addshape, 8); const { W, H } = dims(), s = newShapeLayer(d.addshape, (visibleSlide() + .5) * W, H / 2); state.layers.push(s); ui.tab.shape = 'form'; selectLayer(s.id); pushHistory(); }
+  else if (d.emoji) { pushList('recentEl', 'e:' + d.emoji, 8); const { W, H } = dims(), s = newTextLayer((visibleSlide() + .5) * W, H / 2, d.emoji); s.size = 220; s.shadow = false; s.font = 'Instrument Sans'; state.layers.push(s); ui.tab.text = 'stil'; selectLayer(s.id); pushHistory(); }
   else if (d.addtext) { const { W, H } = dims(), s = newTextLayer((visibleSlide() + .5) * W, H / 2, 'Dein Text'); textPreset(s, d.addtext); state.layers.push(s); ui.tab.text = 'text'; selectLayer(s.id); pushHistory(); }
   else if (d.pick) { selectLayer(+d.pick); }
   else if (d.goslide) { goSlide(+d.goslide); setTimeout(renderPanel, 300); }
@@ -800,6 +854,10 @@ function action(a, l) {
     case 'rot90': { const a0 = cropAspect(l), h0 = l.w / a0; l.rot90 = (l.rot90 + 1) % 4; if (l.crop.ratio === 'orig') l.w = h0; resetGeoEdits(l); commit(); return; }
     case 'flip': l.flip = !l.flip; resetGeoEdits(l); commit(); return;
     case 'tplReroll': state.tpl.seed = (state.tpl.seed || 0) + 1; layout(false); commit(); toast('Seiten neu gewürfelt'); return;
+    case 'tplFav': { const f = LS.get('tplFav', []), id = state.tpl.kind, on = f.includes(id); LS.set('tplFav', on ? f.filter(x => x !== id) : [id, ...f]); toast(on ? 'Aus Favoriten entfernt' : 'Als Favorit gemerkt'); renderPanel(); return; }
+    case 'tplStyleReset': TPL_STYLE_KEYS.forEach(k => delete state.tpl[k]); layout(false); commit(); toast('Stil zurückgesetzt'); return;
+    case 'tplBgReset': delete state.tpl.bgLock; layout(false); commit(); return;
+    case 'reseed': l.seed = (l.seed || 0) + 1; commit(); return;
     case 'tplShuffle': shufflePhotos(); commit(); toast('Fotos neu gemischt'); return;
     case 'tplRelease': releaseTemplate(); commit(); toast('Vorlage gelöst – alles frei verschiebbar'); return;
     case 'cropReset': l.crop = { ratio: 'orig', zoom: 1, px: .5, py: .5 }; l.rot = 0; P.persp = { v: 0, h: 0 }; commit(); return;

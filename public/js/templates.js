@@ -2,6 +2,7 @@
    Maßeinheit in den Bauplänen: 1 = Slide-Breite, A = Slide-Höhe / Slide-Breite. */
 import { state, dims, clone, newId, seeded, ui } from './core.js';
 import { newImageLayer, newTextLayer, newShapeLayer, computeBox } from './layers.js';
+import { isDoodle } from './props.js';
 
 const S = (x, y, w, h, o) => Object.assign({ x, y, w, h }, o);
 const grid = (x, y, w, h, c, r, g, o) => { const cw = (w - g * (c - 1)) / c, ch = (h - g * (r - 1)) / r, out = []; for (let j = 0; j < r; j++) for (let i = 0; i < c; i++) out.push(S(x + i * (cw + g), y + j * (ch + g), cw, ch, o)); return out; };
@@ -121,6 +122,25 @@ function doodles(i, A, page, r, dc, cnt, ink = '#1d1d1d', avoid = true, kinds = 
     if (boxes.some(q => b[0] < q[2] && b[2] > q[0] && b[1] < q[3] && b[3] > q[1])) continue;
     boxes.push(b); dc.push(SH(kind, cx, cy, w, h, { fill: ink, rot: Math.round((r() - .5) * 300) / 10, sw: 5 + Math.round(r() * 3) })); k++;
   }
+}
+/* Eigener Stil über jeder Vorlage: Neigung, Rahmen, Schrift, Textfarbe, Kritzeleien */
+const SCRIB = k => isDoodle(k) || /^(scribble|corners|scribbleArrow|sparkle)$/.test(k);
+const lum = h => { const m = /^#?([0-9a-f]{6})$/i.exec(h || ''); if (!m) return 1; const n = parseInt(m[1], 16); return ((n >> 16 & 255) * .299 + (n >> 8 & 255) * .587 + (n & 255) * .114) / 255; };
+function styleTpl(L, n, A, t) {
+  if (t.tilt) L.slots.forEach((s, j) => { if (s.pano || (s.w > .97 && s.h > A * .97)) return; const r = rng(500 + j * 7 + (t.seed || 0) * 31); s.rot = Math.round(((s.rot || 0) + (r() - .5) * 2 * t.tilt) * 10) / 10; });
+  if (t.frame != null || t.frameColor) L.slots.forEach(s => { if (s.pano) return; if (t.frame != null && !s.frame) s.border = t.frame; if (t.frameColor) s.borderColor = t.frameColor; });
+  L.deco = L.deco || [];
+  if (t.doodles === 'off') L.deco = L.deco.filter(d => d.t !== 'shape' || !SCRIB(d.kind));
+  else if (t.doodles === 'few' || t.doodles === 'lots') {
+    const bgDark = lum((L.bg && !t.bgLock ? L.bg.c1 : state.bg.c1)) < .45;
+    for (let i = 0; i < n; i++) { const page = L.slots.filter(s => s.x + s.w / 2 >= i && s.x + s.w / 2 < i + 1 && !(s.w > .97 && s.h > A * .97)), full = page.length < L.slots.filter(s => s.x + s.w / 2 >= i && s.x + s.w / 2 < i + 1).length;
+      doodles(i, A, full ? [] : page, rng(700 + i * 13 + (t.seed || 0) * 17), L.deco, t.doodles === 'lots' ? 5 : 2, t.ink || (bgDark || full ? '#ffffff' : '#1d1d1d'), !full); }
+  }
+  for (const d of L.deco) {
+    if (d.t === 'text') { if (t.font) d.font = t.font; if (t.textColor) d.color = t.textColor; }
+    else if (t.ink && SCRIB(d.kind)) d.fill = t.ink;
+  }
+  return L;
 }
 /* Allgemeine Abwechslung: einzelne Slides zufällig spiegeln (nur Felder, die ganz auf der Slide liegen) */
 export function vary(L, n, o, T) {
@@ -815,7 +835,8 @@ export const defaultTpl = (kind, v = 0) => ({ kind, v, gap: byId[kind].gap ?? .0
 export function applyTemplate(kind, v = 0) {
   if (!byId[kind]) return false;
   const keep = state.tpl && state.tpl.kind === kind ? state.tpl : null;
-  state.tpl = keep ? { ...keep, v } : defaultTpl(kind, v);
+  const style = {}; if (state.tpl) for (const k of ['tilt', 'frame', 'frameColor', 'font', 'textColor', 'doodles', 'ink']) if (state.tpl[k] != null) style[k] = state.tpl[k];
+  state.tpl = keep ? { ...keep, v } : { ...defaultTpl(kind, v), ...style };
   layout(true);
   return true;
 }
@@ -837,7 +858,7 @@ export function layout(fitSlides) {
   // nur Slides ergänzen, solange dadurch wirklich mehr Felder entstehen
   if (fitSlides) { const cnt = m => countGroups(T.build(m, A, o(m)).slots); let m = n; while (m < 20 && cnt(m) < k) m++; if (cnt(m) > cnt(n)) n = m; }
   state.slides = n;
-  const L = vary(T.build(n, A, o(n)), n, o(n), T);
+  const L = styleTpl(vary(T.build(n, A, o(n)), n, o(n), T), n, A, t);
   const oldDeco = new Map(state.layers.filter(l => l.tplKey).map(l => [l.tplKey, l]));
   const others = state.layers.filter(l => !l.tplKey && !(l.type === 'image' && (!l.srcId || l.dupOf)) && !photos.includes(l) && !(l.type === 'image' && l.grp && photos.some(p => p.grp === l.grp)));
   const groupPhoto = new Map(); let next = 0;
@@ -855,7 +876,7 @@ export function layout(fitSlides) {
   // Fotos ohne Feld werden ausgeblendet (in „Ebenen“ wieder einblendbar)
   const rest = photos.filter(p => !slotLayers.includes(p)); rest.forEach(p => { p.hidden = true; delete p.slot; });
   layout.hiddenCount = rest.length;
-  if (L.bg) { state.bg.c1 = L.bg.c1; state.bg.grad = false; state.bg.pattern = L.bg.pattern || 'none'; }
+  if (L.bg && !t.bgLock) { state.bg.c1 = L.bg.c1; state.bg.grad = false; state.bg.pattern = L.bg.pattern || 'none'; }
   // Deko mit „after“ liegt direkt über einem bestimmten Feld (z. B. Fotostreifen-Hintergrund über dem Stimmungsbild)
   const mid = []; slotLayers.forEach((sl0, j) => { mid.push(sl0); deco.filter(d => d.after === j).forEach(d => mid.push(d)); });
   state.layers = [...deco.filter(d => d.under), ...mid, ...rest, ...others, ...deco.filter(d => !d.under && d.after == null)];

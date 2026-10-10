@@ -316,6 +316,9 @@ export function textMetrics(l) {
   mctx.font = fontStr(l); const lines = textOf(l).split('\n'), lh = l.size * (l.lineH || 1.16), ls = (l.spacing || 0) / 100 * l.size;
   const widths = lines.map(t => mctx.measureText(t || ' ').width + ls * Math.max(0, [...t].length - 1)), tw = Math.max(...widths);
   const st = (l.stroke || 0) / 100 * l.size, pad = (l.bg !== 'none' ? l.size * .38 : l.size * .08) + st, pinX = l.bg === 'pin' ? l.size * .75 : 0;
+  if (l.curve && l.bg === 'none') { // Bogentext: Rahmen an die Kurve anpassen
+    const k = Math.min(1, Math.abs(l.curve) / 100), R = Math.max(tw, 1) / (k * Math.PI * 1.15), half = Math.max(tw, 1) / (2 * R), sag = R * (1 - Math.cos(half));
+    return { lines, widths, lh, ls, pad, st, pinX, sag, w: 2 * R * Math.sin(Math.min(half, Math.PI / 2)) + lh + pad * 2, h: lines.length * lh + sag + pad * 2 }; }
   return { lines, widths, lh, ls, pad, st, pinX, w: tw + pad * 2 + pinX, h: lines.length * lh + pad * 2 };
 }
 const RANSOM_FONTS = [['Anton', 400], ['DM Serif Display', 400], ['Archivo Black', 400], ['Playfair Display', 600], ['Bebas Neue', 400], ['Space Mono', 700], ['Pacifico', 400], ['Permanent Marker', 400], ['Special Elite', 400]];
@@ -351,6 +354,7 @@ function drawTextLayer(c, l) {
     const px = -m.w / 2 + m.pad * .55 + l.size * .3, py = 0, pr = l.size * .28; c.fillStyle = '#8a4bd8'; c.beginPath(); c.arc(px, py - pr * .25, pr, Math.PI * .85, Math.PI * 2.15); c.lineTo(px, py + pr * 1.15); c.closePath(); c.fill();
     c.fillStyle = '#ffffff'; c.beginPath(); c.arc(px, py - pr * .25, pr * .38, 0, Math.PI * 2); c.fill();
   }
+  if (l.curve && l.bg === 'none') { drawCurvedText(c, l, m); return; }
   if (l.bg === 'solid' || l.bg === 'soft') { c.save(); c.globalAlpha *= l.bg === 'soft' ? .62 : 1; c.fillStyle = l.bgColor; roundPath(c, -m.w / 2, -m.h / 2, m.w, m.h, l.size * .28); c.fill(); c.restore(); }
   c.font = fontStr(l); c.textBaseline = 'middle'; c.textAlign = 'left';
   const lineX = i => { const lw = m.widths[i]; return (l.align === 'left' ? -m.w / 2 + m.pad : l.align === 'right' ? m.w / 2 - m.pad - lw : -lw / 2) + (m.pinX || 0) / 2; };
@@ -364,6 +368,25 @@ function drawTextLayer(c, l) {
   m.lines.forEach((t, i) => put('fillText', t, lineX(i), lineY(i)));
   if (l.glow) { c.shadowBlur = l.size * .15; m.lines.forEach((t, i) => put('fillText', t, lineX(i), lineY(i))); }
   c.restore();
+}
+
+/* Text auf einem Bogen: positiv = nach oben gewölbt, negativ = nach unten */
+function drawCurvedText(c, l, m) {
+  c.font = fontStr(l); c.textBaseline = 'middle'; c.textAlign = 'center';
+  const k = clamp(l.curve / 100, -1, 1), up = k > 0, maxW = Math.max(...m.widths, 1), R = maxW / (Math.abs(k) * Math.PI * 1.15), ls = m.ls || 0;
+  const glyphs = [];
+  m.lines.forEach((t, i) => {
+    const y0 = -(m.h - (m.sag || 0)) / 2 + m.pad + m.lh * (i + .5) + (up ? -1 : 1) * (m.sag || 0) / 2, r = up ? R + (m.lines.length - 1 - i) * m.lh : R + i * m.lh, cy = up ? y0 + r : y0 - r;
+    const chars = [...t], cw = chars.map(ch => c.measureText(ch).width + ls), tot = cw.reduce((a, b) => a + b, 0) - ls;
+    let x = -tot / 2;
+    chars.forEach((ch, j) => { const a = (x + cw[j] / 2 - ls / 2) / r; x += cw[j];
+      glyphs.push(up ? [ch, Math.sin(a) * r, cy - Math.cos(a) * r, a] : [ch, Math.sin(-a) * -r, cy + Math.cos(a) * r, -a]); });
+  });
+  const pass = fn => glyphs.forEach(([ch, x, y, a]) => { c.save(); c.translate(x, y); c.rotate(a); c[fn](ch, 0, 0); c.restore(); });
+  if (m.st) { c.save(); c.lineJoin = 'round'; c.lineWidth = m.st * 2; c.strokeStyle = l.strokeColor || '#111'; pass('strokeText'); c.restore(); }
+  c.save(); c.fillStyle = l.color;
+  if (l.glow) { c.shadowColor = l.color; c.shadowBlur = l.size * .5; } else if (l.shadow && !m.st) { c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = l.size * .18; c.shadowOffsetY = l.size * .04; }
+  pass('fillText'); c.restore();
 }
 
 /* ---------- Formen ---------- */
