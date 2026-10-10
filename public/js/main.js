@@ -119,6 +119,15 @@ const TOOL_OF_TAB = { freistellen: 'cut', selektiv: 'mask', pinsel: 'brush', rep
 function activeTool() { const l = selLayer(); if (!l || l.type !== 'image' || !l.srcId) return null; if (ui.pick) return 'wb'; return TOOL_OF_TAB[ui.tab.image] || null; }
 function drawToolOverlay(l) {
   const tool = activeTool(), G = imgGeom(l); if (!G) return; const s = view.s, p = l.params;
+  if (tool === 'crop' && !l.crop.box) { // ganzes Foto halbtransparent zeigen, damit man sieht, was außerhalb des Rahmens liegt
+    const x0 = -G.sx * G.k - G.bx.w / 2, y0 = -G.sy * G.k - G.bx.h / 2 + G.bx.iy, fw = G.iw * G.k, fh = G.ih * G.k;
+    const fx = -G.bx.w / 2, fy = -G.bx.h / 2 + G.bx.iy, src = G.c.proc || G.c.prep;
+    ctx.save(); ctx.beginPath(); ctx.rect(x0 - 2, y0 - 2, fw + 4, fh + 4); ctx.rect(fx, fy, G.bx.w, G.bx.h); ctx.clip('evenodd');
+    ctx.globalAlpha = .4; ctx.drawImage(src, x0, y0, fw, fh); ctx.globalAlpha = 1; ctx.lineWidth = 1.5 / s; ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.setLineDash([6 / s, 5 / s]); ctx.strokeRect(x0, y0, fw, fh); ctx.setLineDash([]); ctx.restore(); ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,.45)'; ctx.lineWidth = 1 / s; ctx.beginPath();
+    for (const f of [1 / 3, 2 / 3]) { ctx.moveTo(-G.bx.w / 2 + f * G.bx.w, -G.bx.h / 2 + G.bx.iy); ctx.lineTo(-G.bx.w / 2 + f * G.bx.w, G.bx.h / 2 + G.bx.iy); ctx.moveTo(-G.bx.w / 2, -G.bx.h / 2 + G.bx.iy + f * G.bx.h); ctx.lineTo(G.bx.w / 2, -G.bx.h / 2 + G.bx.iy + f * G.bx.h); }
+    ctx.stroke(); ctx.lineWidth = 2.5 / s; ctx.strokeStyle = COL.accent; ctx.strokeRect(-G.bx.w / 2, -G.bx.h / 2 + G.bx.iy, G.bx.w, G.bx.h); ctx.restore();
+  }
   ctx.save(); ctx.beginPath(); ctx.rect(-G.bx.w / 2, -G.bx.h / 2 + G.bx.iy, G.bx.w, G.bx.h); ctx.clip();
   const pin = (P, on) => { ctx.beginPath(); ctx.arc(P.x, P.y, 12 / s, 0, Math.PI * 2); ctx.fillStyle = on ? COL.accent : '#fff'; ctx.fill(); ctx.lineWidth = 2.5 / s; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.stroke(); };
   const ring = (P, rx, ry, a, dash) => { ctx.save(); ctx.translate(P.x, P.y); ctx.rotate(a); ctx.beginPath(); ctx.ellipse(0, 0, Math.max(1, rx), Math.max(1, ry), 0, 0, Math.PI * 2); ctx.restore(); ctx.setLineDash(dash ? [8 / s, 6 / s] : []); ctx.lineWidth = 2 / s; ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.stroke(); ctx.setLineDash([]); };
@@ -216,7 +225,7 @@ cv.addEventListener('pointerdown', e => {
     if (l && !tool && hitHandle(l, p)) { gest = { mode: 'handle', l, d0: Math.hypot(p.x - l.x, p.y - l.y), a0: Math.atan2(p.y - l.y, p.x - l.x), size0: sizeOf(l), rot0: l.rot, moved: false }; }
     else {
       const hit = hitTest(p);
-      if (hit && !(tool && hit !== l)) { if (ui.sel !== hit.id) selectLayer(hit.id); gest = { mode: 'move', l: hit, dx: p.x - hit.x, dy: p.y - hit.y, x0: hit.x, y0: hit.y, moved: false }; }
+      if (hit && !(tool && tool !== 'crop' && hit !== l)) { if (ui.sel !== hit.id) { if (hit.type === 'image' && hit.srcId && (!l || l.type !== 'image' || tool === 'crop')) ui.tab.image = 'rahmen'; selectLayer(hit.id); } gest = { mode: 'move', l: hit, dx: p.x - hit.x, dy: p.y - hit.y, x0: hit.x, y0: hit.y, moved: false }; }
       else gest = { mode: 'pan', sx: p.sx, sy: p.sy, ox: view.ox, oy: view.oy, moved: false };
     }
     requestRender();
@@ -264,6 +273,9 @@ function endPtr(e) {
   if (g) {
     if (g.mode === 'pan' && !g.moved && ui.sel && !activeTool()) selectLayer(null);
     else if (g.mode === 'move' && !g.moved && g.l && g.l.type === 'image' && !g.l.srcId) ui.tapPh = g.l.id;
+    else if ((g.mode === 'move' || g.mode === 'crop') && !g.moved && g.l && g.l.type === 'image' && g.l.srcId) { const now = performance.now();
+      if (lastTap.id === g.l.id && now - lastTap.t < 400) { lastTap.id = null; enterCrop(g.mode !== 'crop'); } else lastTap = { id: g.l.id, t: now };
+      if (g.mode === 'crop') { pushHistory(); syncPanelValues(); } }
     else if (g.mode === 'move' && !g.moved && g.l && g.l.type === 'text') { const now = performance.now();
       if (lastTap.id === g.l.id && now - lastTap.t < 380) { ui.tab.text = 'text'; renderUI(); const ta = $('#txtIn'); if (ta) { ta.focus(); ta.select(); } lastTap.id = null; } else lastTap = { id: g.l.id, t: now }; }
     else if (g.mode === 'brush' || g.mode === 'pinDrag' || g.mode === 'crop' || g.mode === 'none' || g.mode === 'pinchPin' || g.mode === 'pinchCrop') { pushHistory(); syncPanelValues(); }
@@ -280,6 +292,12 @@ cv.addEventListener('wheel', e => { e.preventDefault(); const p = toCanvas(e);
   if (e.ctrlKey) { const ns = clamp(view.s * Math.exp(-e.deltaY * .01), .03, 3); view.ox = p.sx - p.x * ns; view.oy = p.sy - p.y * ns; view.s = ns; }
   else { view.ox -= e.deltaX || e.deltaY; } clampView(); requestRender(); }, { passive: false });
 
+/* Doppeltipp aufs Foto: Ausschnitt im Rahmen verschieben und zoomen (nochmal Doppeltipp: zurück zum Rahmen) */
+function enterCrop(on) {
+  const l = selLayer(); if (!l || l.type !== 'image' || !l.srcId) return;
+  ui.tab.image = on ? 'zuschnitt' : 'rahmen'; ui.pick = false; renderUI();
+  if (on) toast(l.crop.box ? 'Ziehen verschiebt den Ausschnitt im Panorama' : 'Foto im Rahmen verschieben · Doppeltipp: fertig');
+}
 function selectLayer(id) {
   if (ui.sel && ui.sel !== id) releaseAux(selLayer());
   ui.sel = id; ui.pick = false; ui.maskSel = 0; renderUI();
@@ -331,10 +349,10 @@ function updateTop() {
     : tool === 'cut' ? (ui.cutMode === 'erase' ? 'Radierer: übermaltes Motiv wieder zurücknehmen' : 'Male über das Motiv – es liegt dann vor Text & Elementen · zwei Finger: Ansicht')
     : tool === 'brush' ? `Mit dem Finger malen: ${BRUSH_MODES.find(b => b[0] === ui.brushMode)[1]} · zwei Finger: Ansicht verschieben`
     : tool === 'heal' ? 'Tippe auf Flecken, Fussel oder störende Punkte'
-    : tool === 'focus' ? 'Ziehen verschiebt den Schärfebereich' : tool === 'crop' ? 'Im Foto ziehen verschiebt den Ausschnitt · zwei Finger zoomen'
+    : tool === 'focus' ? 'Ziehen verschiebt den Schärfebereich' : tool === 'crop' ? 'Foto im Rahmen verschieben · zwei Finger zoomen · Doppeltipp: fertig'
     : tool === 'wb' ? 'Tippe auf etwas, das weiß oder grau sein sollte'
     : l && l.type === 'image' && !l.srcId ? 'Tippe auf das „+“, um ein Foto einzusetzen'
-    : state.layers.length ? (l ? (l.locked ? 'Ebene ist gesperrt – entsperren unter „Ebenen“' : 'Ziehen verschiebt · Eck-Griff skaliert und dreht · zwei Finger: Zoom') : 'Antippen zum Bearbeiten · leere Fläche ziehen zum Scrollen') : 'Füge Fotos hinzu – sie dürfen über die Slide-Grenzen ragen.';
+    : state.layers.length ? (l ? (l.locked ? 'Ebene ist gesperrt – entsperren unter „Ebenen“' : l.type === 'image' && l.srcId ? 'Doppeltipp: Ausschnitt & Zoom · Ziehen verschiebt · Eck-Griff skaliert und dreht' : 'Ziehen verschiebt · Eck-Griff skaliert und dreht · zwei Finger: Zoom') : 'Antippen zum Bearbeiten · leere Fläche ziehen zum Scrollen') : 'Füge Fotos hinzu – sie dürfen über die Slide-Grenzen ragen.';
   if (hintEl.textContent !== prevHint) { hintEl.classList.remove('fade'); clearTimeout(updateTop.t); updateTop.t = setTimeout(() => hintEl.classList.add('fade'), 5000); }
 }
 function renderUI() { renderTabs(); renderHead(); renderPanel(); updateTop(); requestRender(); }
@@ -345,10 +363,10 @@ const IC = {
   cam: sv('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'), text: sv('<path d="M5 6V4h14v2M12 4v16M9 20h6"/>'), el: sv('<path d="m12 3 2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.4 6.7 19.4l1.2-6L3.4 9.3l6-.7z"/>'),
   looks: sv('<circle cx="8" cy="9" r="5"/><circle cx="16" cy="9" r="5"/><circle cx="12" cy="15" r="5"/>'), light: sv('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'),
   color: sv('<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/>'), fx: sv('<path d="M5 19 19 5M14 5h5v5M7 4v4M5 6h4M17 16v4M15 18h4"/>'), tools: sv('<path d="M15 4l5 5L9 20H4v-5z"/><path d="m13 6 5 5"/>'),
-  crop: sv('<path d="M6 2v16h16"/><path d="M2 6h16v16"/>'), style: sv('<path d="M4 20h4L19 9l-4-4L4 16z"/>'), shape: sv('<rect x="4" y="4" width="16" height="16" rx="3"/>'), slot: sv('<path d="M12 5v14M5 12h14"/>')
+  crop: sv('<path d="M6 2v16h16"/><path d="M2 6h16v16"/>'), frame: sv('<rect x="3" y="3" width="18" height="18" rx="2"/><rect x="7" y="7" width="10" height="10" rx="1"/>'), style: sv('<path d="M4 20h4L19 9l-4-4L4 16z"/>'), shape: sv('<rect x="4" y="4" width="16" height="16" rx="3"/>'), slot: sv('<path d="M12 5v14M5 12h14"/>')
 };
 /* Foto-Werkzeuge in Gruppen: obere Reiter, darunter Unterreiter */
-const IMG_GROUPS = [['looks', 'Looks', 'looks', ['looks']], ['licht', 'Licht', 'light', ['anpassen', 'licht', 'kurve']], ['farbe', 'Farbe', 'color', ['farbe', 'grading']],
+const IMG_GROUPS = [['rahmen', 'Rahmen', 'frame', ['rahmen']], ['looks', 'Looks', 'looks', ['looks']], ['licht', 'Licht', 'light', ['anpassen', 'licht', 'kurve']], ['farbe', 'Farbe', 'color', ['farbe', 'grading']],
   ['effekte', 'Effekte', 'fx', ['effekte', 'details', 'stempel']], ['werkzeuge', 'Werkzeuge', 'tools', ['freistellen', 'selektiv', 'pinsel', 'reparieren', 'fokus']], ['zuschnitt', 'Zuschnitt', 'crop', ['zuschnitt']], ['ebene', 'Ebene', 'layers', ['ebene']]];
 const SUB_LABEL = { anpassen: 'Schnell', licht: 'Licht & Histogramm', kurve: 'Kurve', farbe: 'Farbe & HSL', grading: 'Color Grading', effekte: 'Film & Licht', details: 'Details', stempel: 'Datumsstempel',
   freistellen: 'Freistellen', selektiv: 'Selektiv', pinsel: 'Pinsel', reparieren: 'Reparieren', fokus: 'Fokus' };
@@ -694,25 +712,30 @@ const IMAGE_PANELS = {
     + group('', slider('c.zoom', 'Zoom', 1, 4, .01, 'x', 1) + slider('c.px', 'Ausschnitt waagerecht', 0, 100, 1, 'pct', 50, 100) + slider('c.py', 'Ausschnitt senkrecht', 0, 100, 1, 'pct', 50, 100) + slider('l.rot', 'Begradigen / Drehen', -180, 180, .5, 'deg'))
     + `<div class="row">${btn('rot90', '90° drehen')}${btn('flip', 'Spiegeln')}${btn('cropReset', 'Zurücksetzen')}</div>`
     + group('Perspektive', slider('pv.v', 'Senkrecht (stürzende Linien)', -100, 100, 1) + slider('pv.h', 'Waagerecht', -100, 100, 1)),
+  rahmen: (l, p) => panelFrame(l),
   ebene: (l, p) => panelImageLayer(l)
 };
 const BRUSH_MODES = [['dodge', 'Aufhellen'], ['burn', 'Abdunkeln'], ['sat', 'Sättigung +'], ['desat', 'Sättigung −'], ['warm', 'Wärmer'], ['cool', 'Kühler'], ['erase', 'Radierer']];
 const CLIPS = [['rect', 'Rechteck'], ['round', 'Abgerundet'], ['circle', 'Kreis'], ['arch', 'Bogen'], ['heart', 'Herz'], ['star', 'Stern'], ['blob', 'Klecks']];
 const FRAME_LIST = [['polaroid', 'Sofortbild'], ['instax', 'Instax'], ['film', 'Kleinbild'], ['filmv', 'Kleinbild hoch'], ['dia', 'Dia']];
 const EDGES = [['', 'Glatt'], ['torn', 'Zerrissen'], ['deckle', 'Büttenrand'], ['stamp', 'Briefmarke']];
-function panelImageLayer(l) {
+function panelFrame(l) {
   const framed = FRAMES.has(l.shape);
-  return group('', slider('l.wpct', 'Größe (Slide-Breite)', 10, 100 * state.slides + 100, 1, 'pct', 100) + slider('l.rot', 'Drehung', -180, 180, .5, 'deg') + slider('l.opacity', 'Deckkraft', 0, 100, 1, 'pct', 100, 100))
+  return `<div class="callout"><span class="note"><b>Doppelt aufs Foto tippen</b>, um den Ausschnitt im Rahmen zu verschieben und zu zoomen.</span>${btn('enterCrop', 'Ausschnitt & Zoom')}</div>`
   + group('Form', `<div class="chips">${CLIPS.map(([k, lb]) => chip(`data-shape="${k}"`, lb, l.shape === k)).join('')}</div>${l.shape === 'round' ? slider('l.radius', 'Eckenradius', 1, 50, 1, 'n', 7) : ''}`)
-  + group('Rahmen', `<div class="chips">${FRAME_LIST.map(([k, lb]) => chip(`data-shape="${k}"`, lb, l.shape === k)).join('')}</div>
+  + group('Rand & Rahmen', `<div class="chips">${chip('data-shape="rect"', 'Kein Rahmen', !framed && !l.border)}${FRAME_LIST.map(([k, lb]) => chip(`data-shape="${k}"`, lb, l.shape === k)).join('')}</div>
     ${slider('l.border', framed ? 'Randbreite' : 'Rand', 0, 120, 1, 'px')}${swatches('frame', FRAME_COLORS.concat(l.shape === 'film' ? ['#161616'] : []), l.borderColor)}
     ${!framed ? `<div class="row"><span class="note">Feine Linie</span><div class="chips">${[['', 'Keine'], ['#111111', 'Schwarz'], ['#ffffff', 'Weiß']].map(([k, lb]) => chip(`data-keyline="${k}"`, lb, (l.keyline || '') === k)).join('')}</div></div>` : ''}
     ${framed ? `<input class="name" id="capIn" value="${esc(l.caption || '')}" placeholder="${l.shape === 'film' ? 'Filmaufdruck' : 'Beschriftung, z. B. Juli 24'}" maxlength="40" aria-label="Beschriftung">` : ''}
     ${toggle('shadow', 'Schatten', l.shadow)}`)
   + (framed ? '' : group('Kante', `<div class="chips">${EDGES.map(([k, lb]) => chip(`data-edge="${k}"`, lb, (l.edge || '') === k)).join('')}</div>
     ${l.edge === 'torn' ? `<div class="chips">${[['all', 'Rundum'], ['tb', 'Oben & unten'], ['lr', 'Links & rechts']].map(([k, lb]) => chip(`data-edgesides="${k}"`, lb, (l.edgeSides || 'all') === k)).join('')}</div>` : ''}`))
+  + group('', slider('l.wpct', 'Größe (Slide-Breite)', 10, 100 * state.slides + 100, 1, 'pct', 100) + slider('l.rot', 'Drehung', -180, 180, .5, 'deg'));
+}
+function panelImageLayer(l) {
+  return group('', slider('l.wpct', 'Größe (Slide-Breite)', 10, 100 * state.slides + 100, 1, 'pct', 100) + slider('l.rot', 'Drehung', -180, 180, .5, 'deg') + slider('l.opacity', 'Deckkraft', 0, 100, 1, 'pct', 100, 100))
   + group('Mischmodus', `<div class="chips scroll">${BLENDS.map(([k, lb]) => chip(`data-blend="${k}"`, lb, (l.blend || 'source-over') === k)).join('')}</div><span class="note">Für Doppelbelichtung: Foto über ein anderes legen, „Negativ multipl.“ oder „Aufhellen“ wählen.</span>`)
-  + alignRow() + `<div class="row">${btn('fillSlide', 'Slide füllen')}${btn('fillAll', 'Alle Slides füllen')}${btn('center', 'Auf Slide zentrieren')}${btn('replace', 'Foto ersetzen')}${btn('bgBlur', 'Als unscharfer Hintergrund')}</div>` + layerOrderRow(l);
+  + alignRow() + `<div class="row">${btn('fillSlide', 'Slide füllen')}${btn('fillAll', 'Alle Slides füllen')}${btn('replace', 'Foto ersetzen')}${btn('bgBlur', 'Als unscharfer Hintergrund')}</div>` + layerOrderRow(l);
 }
 const layerOrderRow = l => `<div class="row">${btn('front', 'Nach vorn')}${btn('back', 'Nach hinten')}${btn('dup', 'Duplizieren')}${btn('lock', l.locked ? 'Entsperren' : 'Sperren')}${btn('del', 'Löschen', 'danger')}</div>`;
 function panelLayerCommon(l) {
@@ -854,6 +877,7 @@ function action(a, l) {
     case 'pick': ui.pick = !ui.pick; renderPanel(); updateTop(); return;
     case 'rot90': { const a0 = cropAspect(l), h0 = l.w / a0; l.rot90 = (l.rot90 + 1) % 4; if (l.crop.ratio === 'orig') l.w = h0; resetGeoEdits(l); commit(); return; }
     case 'flip': l.flip = !l.flip; resetGeoEdits(l); commit(); return;
+    case 'enterCrop': enterCrop(true); return;
     case 'tplReroll': state.tpl.seed = (state.tpl.seed || 0) + 1; layout(false); commit(); toast('Seiten neu gewürfelt'); return;
     case 'tplFav': { const f = LS.get('tplFav', []), id = state.tpl.kind, on = f.includes(id); LS.set('tplFav', on ? f.filter(x => x !== id) : [id, ...f]); toast(on ? 'Aus Favoriten entfernt' : 'Als Favorit gemerkt'); renderPanel(); return; }
     case 'tplStyleReset': TPL_STYLE_KEYS.forEach(k => delete state.tpl[k]); layout(false); commit(); toast('Stil zurückgesetzt'); return;
