@@ -54,6 +54,7 @@ function render() {
     if (!tool && !l.locked) { const r = 11 / s; ctx.fillStyle = COL.accent; ctx.beginPath(); ctx.arc(b.ow / 2, -b.oh / 2, r, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = '#1d1704'; ctx.lineWidth = 1.8 / s; ctx.beginPath(); ctx.arc(b.ow / 2, -b.oh / 2, r * .48, -.4, Math.PI * 1.25); ctx.stroke(); }
     if (tool) drawToolOverlay(l, b);
+    if (ui.dropId) { const o = state.layers.find(x => x.id === ui.dropId); if (o) { ctx.restore(); ctx.save(); ctx.translate(o.x, o.y); ctx.rotate(o.rot * Math.PI / 180); const ob = boxOf(o); ctx.lineWidth = 6 / s; ctx.strokeStyle = '#4ade80'; ctx.setLineDash([14 / s, 8 / s]); ctx.strokeRect(-ob.w / 2, -ob.h / 2 + ob.iy, ob.w, ob.h); ctx.setLineDash([]); } }
     ctx.restore();
   }
   if (flags.histDirty) { flags.histDirty = false; drawHist(); }
@@ -81,11 +82,12 @@ function animateView(to) {
   const step = now => { const k = Math.min(1, (now - t0) / d), e = 1 - Math.pow(1 - k, 3); view.s = from.s + (to.s - from.s) * e; view.ox = from.ox + (to.ox - from.ox) * e; view.oy = from.oy + (to.oy - from.oy) * e; render(); if (k < 1) requestAnimationFrame(step); };
   requestAnimationFrame(step);
 }
-slideNav.addEventListener('click', e => {
-  const b = e.target.closest('[data-slide]'); if (!b) return; const sw = stage.clientWidth, sh = stage.clientHeight, { W, H } = dims();
-  if (b.dataset.slide === 'all') { const s = Math.min((sh - 70) / H, (sw - 32) / (W * state.slides)); animateView({ s, ox: (sw - W * state.slides * s) / 2, oy: (sh - H * s) / 2 - 14 }); return; }
-  const i = +b.dataset.slide, s = Math.min((sh - 70) / H, (sw - 32) / W); animateView({ s, ox: sw / 2 - (i + .5) * W * s, oy: (sh - H * s) / 2 - 14 });
-});
+function goSlide(i) {
+  const sw = stage.clientWidth, sh = stage.clientHeight, { W, H } = dims();
+  if (i === 'all') { const s = Math.min((sh - 70) / H, (sw - 32) / (W * state.slides)); animateView({ s, ox: (sw - W * state.slides * s) / 2, oy: (sh - H * s) / 2 - 14 }); return; }
+  const s = Math.min((sh - 70) / H, (sw - 32) / W); animateView({ s, ox: sw / 2 - (i + .5) * W * s, oy: (sh - H * s) / 2 - 14 });
+}
+slideNav.addEventListener('click', e => { const b = e.target.closest('[data-slide]'); if (b) goSlide(b.dataset.slide === 'all' ? 'all' : +b.dataset.slide); });
 /* Werkzeugfeld per Griff größer/kleiner ziehen (Handy) */
 const dock = document.querySelector('.dock'), grab = $('#grab');
 const DOCK_SNAPS = [.3, .46, .7];
@@ -143,6 +145,16 @@ function drawToolOverlay(l) {
 const ptrs = new Map(); let gest = null, lastTap = { id: null, t: 0 };
 function hitTest(p) { for (let i = state.layers.length - 1; i >= 0; i--) { const l = state.layers[i]; if (l.hidden || l.locked) continue; const b = boxOf(l), q = toLocal(l, p); if (Math.abs(q.x) <= b.ow / 2 && Math.abs(q.y) <= b.oh / 2) return l; } return null; }
 function hitHandle(l, p) { if (l.locked) return false; const b = boxOf(l), q = toLocal(l, p), r = 24 / view.s; return Math.hypot(q.x - b.ow / 2, q.y + b.oh / 2) < r; }
+/* Vorlagen-Fotos lassen sich auf ein anderes Feld ziehen und tauschen dort die Plätze */
+const swappable = l => l.type === 'image' && l.slot != null && !l.grp && !l.pane;
+function swapTarget(l, p) {
+  for (let i = state.layers.length - 1; i >= 0; i--) { const o = state.layers[i]; if (o === l || o.hidden || !swappable(o)) continue; const b = boxOf(o), q = toLocal(o, p); if (Math.abs(q.x) <= b.w / 2 && Math.abs(q.y - b.iy) <= b.h / 2) return o; }
+  return null;
+}
+function swapPhotos(a, b) {
+  for (const k of ['srcId', 'params', 'stampMs', 'rot90', 'flip', 'cut', 'dupOf', 'tplLook', 'ph']) { const t = a[k]; a[k] = b[k]; b[k] = t; }
+  for (const l of [a, b]) { l.crop = { ...l.crop, zoom: 1, px: .5, py: .5 }; delete l.crop.box; }
+}
 function sizeOf(l) { return l.type === 'text' ? l.size : l.w; }
 function setSize(l, v) { if (l.type === 'text') l.size = clamp(v, 12, 900); else if (l.type === 'shape') { const f = clamp(v, 20, 30000) / l.w; l.w *= f; if (l.kind !== 'line') l.h *= f; } else l.w = clamp(v, 40, 30000); }
 function snapMove(l, nx, ny) {
@@ -203,7 +215,7 @@ cv.addEventListener('pointerdown', e => {
     if (l && !tool && hitHandle(l, p)) { gest = { mode: 'handle', l, d0: Math.hypot(p.x - l.x, p.y - l.y), a0: Math.atan2(p.y - l.y, p.x - l.x), size0: sizeOf(l), rot0: l.rot, moved: false }; }
     else {
       const hit = hitTest(p);
-      if (hit && !(tool && hit !== l)) { if (ui.sel !== hit.id) selectLayer(hit.id); gest = { mode: 'move', l: hit, dx: p.x - hit.x, dy: p.y - hit.y, moved: false }; }
+      if (hit && !(tool && hit !== l)) { if (ui.sel !== hit.id) selectLayer(hit.id); gest = { mode: 'move', l: hit, dx: p.x - hit.x, dy: p.y - hit.y, x0: hit.x, y0: hit.y, moved: false }; }
       else gest = { mode: 'pan', sx: p.sx, sy: p.sy, ox: view.ox, oy: view.oy, moved: false };
     }
     requestRender();
@@ -223,7 +235,8 @@ cv.addEventListener('pointermove', e => {
   const prev = ptrs.get(e.pointerId); ptrs.set(e.pointerId, p);
   if (Math.abs(p.sx - prev.sx) + Math.abs(p.sy - prev.sy) > 0) gest.moved = gest.moved || Math.hypot(p.sx - (gest.sx ?? prev.sx), p.sy - (gest.sy ?? prev.sy)) > 3 || gest.mode !== 'pan';
   const m = gest.mode;
-  if (m === 'move') { if (gest.l.locked) return; const [nx, ny] = snapMove(gest.l, p.x - gest.dx, p.y - gest.dy); gest.l.x = nx; gest.l.y = ny; }
+  if (m === 'move') { if (gest.l.locked) return; const [nx, ny] = snapMove(gest.l, p.x - gest.dx, p.y - gest.dy); gest.l.x = nx; gest.l.y = ny;
+    if (swappable(gest.l)) { const t = swapTarget(gest.l, p); gest.target = t; ui.dropId = t ? t.id : null; } }
   else if (m === 'handle') { const l = gest.l, d = Math.hypot(p.x - l.x, p.y - l.y), a = Math.atan2(p.y - l.y, p.x - l.x);
     setSize(l, gest.size0 * d / gest.d0); let r = gest.rot0 + (a - gest.a0) * 180 / Math.PI; r = ((r + 540) % 360) - 180;
     for (const t of [-180, -90, 0, 90, 180]) if (Math.abs(r - t) < 3) r = t; l.rot = r; }
@@ -246,13 +259,14 @@ cv.addEventListener('pointermove', e => {
 function endPtr(e) {
   if (!ptrs.has(e.pointerId)) return; ptrs.delete(e.pointerId);
   if (ptrs.size > 0) { if (gest && /^pinch(Layer|Crop|Pin)$/.test(gest.mode)) gest = { mode: 'none', l: gest.l, moved: true }; return; }
-  const g = gest; gest = null; ui.guides = []; flags.throttle = 0;
+  const g = gest; gest = null; ui.guides = []; flags.throttle = 0; if (!g || !g.target) ui.dropId = null;
   if (g) {
     if (g.mode === 'pan' && !g.moved && ui.sel && !activeTool()) selectLayer(null);
     else if (g.mode === 'move' && !g.moved && g.l && g.l.type === 'image' && !g.l.srcId) ui.tapPh = g.l.id;
     else if (g.mode === 'move' && !g.moved && g.l && g.l.type === 'text') { const now = performance.now();
       if (lastTap.id === g.l.id && now - lastTap.t < 380) { ui.tab.text = 'text'; renderUI(); const ta = $('#txtIn'); if (ta) { ta.focus(); ta.select(); } lastTap.id = null; } else lastTap = { id: g.l.id, t: now }; }
     else if (g.mode === 'brush' || g.mode === 'pinDrag' || g.mode === 'crop' || g.mode === 'none' || g.mode === 'pinchPin' || g.mode === 'pinchCrop') { pushHistory(); syncPanelValues(); }
+    else if (g.target) { swapPhotos(g.l, g.target); g.l.x = g.x0; g.l.y = g.y0; ui.dropId = null; commit(); toast('Fotos getauscht', 'Rückgängig', undo); }
     else if (g.l && g.moved) { pushHistory(); syncPanelValues(); }
   }
   if (e.pointerType !== 'mouse') ui.cursor = null;
@@ -311,7 +325,8 @@ function updateTop() {
   $('#undoBtn').disabled = hIdx <= 0; $('#redoBtn').disabled = hIdx >= hist.length - 1;
   $('#fmtTag').textContent = `${state.format} · ${state.slides} ${state.slides === 1 ? 'Slide' : 'Slides'}`;
   const tool = activeTool(), l = selLayer();
-  $('#stageHint').textContent = tool === 'mask' ? 'Tippe ins Foto für einen neuen Punkt · Punkt ziehen verschiebt · zwei Finger: Größe & Drehung'
+  const hintEl = $('#stageHint'), prevHint = hintEl.textContent;
+  hintEl.textContent = tool === 'mask' ? 'Tippe ins Foto für einen neuen Punkt · Punkt ziehen verschiebt · zwei Finger: Größe & Drehung'
     : tool === 'cut' ? (ui.cutMode === 'erase' ? 'Radierer: übermaltes Motiv wieder zurücknehmen' : 'Male über das Motiv – es liegt dann vor Text & Elementen · zwei Finger: Ansicht')
     : tool === 'brush' ? `Mit dem Finger malen: ${BRUSH_MODES.find(b => b[0] === ui.brushMode)[1]} · zwei Finger: Ansicht verschieben`
     : tool === 'heal' ? 'Tippe auf Flecken, Fussel oder störende Punkte'
@@ -319,6 +334,7 @@ function updateTop() {
     : tool === 'wb' ? 'Tippe auf etwas, das weiß oder grau sein sollte'
     : l && l.type === 'image' && !l.srcId ? 'Tippe auf das „+“, um ein Foto einzusetzen'
     : state.layers.length ? (l ? (l.locked ? 'Ebene ist gesperrt – entsperren unter „Ebenen“' : 'Ziehen verschiebt · Eck-Griff skaliert und dreht · zwei Finger: Zoom') : 'Antippen zum Bearbeiten · leere Fläche ziehen zum Scrollen') : 'Füge Fotos hinzu – sie dürfen über die Slide-Grenzen ragen.';
+  if (hintEl.textContent !== prevHint) { hintEl.classList.remove('fade'); clearTimeout(updateTop.t); updateTop.t = setTimeout(() => hintEl.classList.add('fade'), 5000); }
 }
 function renderUI() { renderTabs(); renderHead(); renderPanel(); updateTop(); requestRender(); }
 const sv = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
@@ -466,21 +482,27 @@ function renderPanel() {
   const keep = panel.dataset.key === m + t ? panel.scrollTop : 0;
   panel.innerHTML = h; panel.dataset.key = m + t; panel.scrollTop = keep;
   panel.querySelectorAll('input[type=range]').forEach(paintFill);
+  if (m === 'none' && t === 'canvas') drawSlideThumbs();
   if (m === 'image') { if (t === 'looks') fillThumbs(); if (t === 'licht') { flags.histDirty = true; requestRender(); } if (t === 'kurve') setupCurve(); }
 }
 function panelCanvas() {
   const f = state.format, i = visibleSlide() + 1;
   return `${ui.sample ? `<div class="callout"><span class="note"><b>Beispielprojekt</b> mit generiertem Motiv. Beim ersten eigenen Foto wird es ersetzt.</span></div>` : ''}
-  <div class="row"><input class="name" id="projName" value="${esc(ui.projectName)}" maxlength="40" aria-label="Projektname"><button class="btn ghost small" data-act2="projects">Projekte</button></div>
+  <div class="row"><input class="name" id="projName" value="${esc(ui.projectName)}" maxlength="40" aria-label="Projektname"><button class="btn ghost small" data-act2="projects">Projekte</button><button class="btn ghost small" data-act2="help">? Hilfe</button></div>
   ${group('Format', `<div class="chips">${Object.entries(FORMATS).map(([k, v]) => chip(`data-format="${k}"`, `${v.label}<small>${v.px}</small>`, f === k)).join('')}</div>`)}
   ${group('Slides', `<div class="row"><div class="stepper"><button data-slides="-1" aria-label="Eine Slide weniger">−</button><span>${state.slides}</span><button data-slides="1" aria-label="Eine Slide mehr">+</button></div><span class="note">Instagram erlaubt bis zu 20 Bilder pro Post.</span></div>
-    <div class="row"><span class="note">Slide ${i}:</span>${btn('slideLeft', '← nach vorn')}${btn('slideRight', 'nach hinten →')}${btn('slideInsert', '+ danach einfügen')}${btn('slideDelete', 'Löschen', 'danger')}</div>`)}
+    <div class="slide-strip" id="slideStrip">${Array.from({ length: state.slides }, (_, k) => `<button class="sthumb" data-goslide="${k}" aria-current="${k + 1 === i}" aria-label="Slide ${k + 1}"><canvas width="72" height="${Math.round(72 * dims().H / dims().W)}"></canvas><span>${k + 1}</span></button>`).join('')}</div>
+    <div class="row"><span class="note">Slide ${i}:</span>${btn('slideLeft', '←')}${btn('slideRight', '→')}${btn('slideDup', 'Duplizieren')}${btn('slideInsert', '+ Leere danach')}${btn('slideDelete', 'Löschen', 'danger')}</div>`)}
   ${group('Hintergrund', `${swatches('bg1', BG_COLORS, state.bg.c1)}
   ${toggle('grad', 'Verlauf', state.bg.grad)}
   ${state.bg.grad ? `${swatches('bg2', BG_COLORS, state.bg.c2)}<div class="chips">${[['h', 'Waagerecht'], ['v', 'Senkrecht'], ['d', 'Diagonal']].map(([k, lb]) => chip(`data-bgdir="${k}"`, lb, (state.bg.dir || 'h') === k)).join('')}</div>` : ''}
   <span class="sec-label">Muster</span><div class="chips">${BG_PATTERNS.map(([k, lb]) => chip(`data-pattern="${k}"`, lb, (state.bg.pattern || 'none') === k)).join('')}</div>`)}
   ${toggle('grid', 'Drittel-Raster einblenden', ui.grid)}
   <div class="row">${btn('clear', ui.confirmClear ? 'Wirklich alles leeren?' : 'Neues leeres Projekt', 'danger')}${btn('sample', 'Beispiel laden')}</div>`;
+}
+function drawSlideThumbs() {
+  const { W, H } = dims();
+  panel.querySelectorAll('#slideStrip canvas').forEach((cnv, k) => { const x = cnv.getContext('2d'), s = cnv.width / W; x.setTransform(s, 0, 0, s, -k * W * s, 0); drawScene(x, { clean: true }); });
 }
 function panelTemplates() {
   const t = state.tpl, def = t && tplDef(t.kind), cat = ui.tplCat || 'all';
@@ -736,6 +758,7 @@ panel.addEventListener('click', async e => {
   else if (d.emoji) { const { W, H } = dims(), s = newTextLayer((visibleSlide() + .5) * W, H / 2, d.emoji); s.size = 220; s.shadow = false; s.font = 'Instrument Sans'; state.layers.push(s); ui.tab.text = 'stil'; selectLayer(s.id); pushHistory(); }
   else if (d.addtext) { const { W, H } = dims(), s = newTextLayer((visibleSlide() + .5) * W, H / 2, 'Dein Text'); textPreset(s, d.addtext); state.layers.push(s); ui.tab.text = 'text'; selectLayer(s.id); pushHistory(); }
   else if (d.pick) { selectLayer(+d.pick); }
+  else if (d.goslide) { goSlide(+d.goslide); setTimeout(renderPanel, 300); }
   else if (d.lvis) { const x = state.layers.find(y => y.id === +d.lvis); x.hidden = !x.hidden; commit(); }
   else if (d.llock) { const x = state.layers.find(y => y.id === +d.llock); x.locked = !x.locked; commit(); }
   else if (d.lup || d.ldown) { const id = +(d.lup || d.ldown), i = state.layers.findIndex(y => y.id === id), j = i + (d.lup ? 1 : -1); if (j >= 0 && j < state.layers.length) { const [x] = state.layers.splice(i, 1); state.layers.splice(j, 0, x); } commit(); }
@@ -754,11 +777,15 @@ function action(a, l) {
     case 'clear': if (!ui.confirmClear) { ui.confirmClear = true; renderPanel(); return; } newProject(); return;
     case 'sample': loadSample(); return;
     case 'projects': openProjects(); return;
+    case 'help': $('#helpSheet').hidden = false; return;
     case 'slideLeft': { const i = visibleSlide(); if (shiftSlide(i, -1)) { commit(); view.ox += W * view.s; clampView(); } return; }
     case 'slideRight': { const i = visibleSlide(); if (shiftSlide(i, 1)) { commit(); view.ox -= W * view.s; clampView(); } return; }
+    case 'slideDup': { if (state.slides >= 20) { toast('Maximal 20 Slides'); return; } const i = visibleSlide(), inside = x => { const b = boxOf(x); return x.x - b.ow / 2 >= i * W - 1 && x.x + b.ow / 2 <= (i + 1) * W + 1; };
+      const copies = state.layers.filter(inside).map(x => { const c = unlinked(clone(x)); c.id = newId(); c.x += W; return c; });
+      state.layers.forEach(x => { if (x.x > (i + 1) * W) x.x += W; }); state.layers.push(...copies); state.slides++; fit(); commit(); toast(`Slide ${i + 1} dupliziert`, 'Rückgängig', undo); return; }
     case 'slideInsert': { if (state.slides >= 20) { toast('Maximal 20 Slides'); return; } const i = visibleSlide(); state.layers.forEach(x => { if (x.x > (i + 1) * W) x.x += W; }); state.slides++; fit(); commit(); toast(`Leere Slide ${i + 2} eingefügt`); return; }
     case 'slideDelete': { if (state.slides <= 1) return; const i = visibleSlide(); state.layers = state.layers.filter(x => { const b = boxOf(x); return !(x.x - b.ow / 2 >= i * W - 1 && x.x + b.ow / 2 <= (i + 1) * W + 1); });
-      state.layers.forEach(x => { if (x.x > (i + 1) * W) x.x -= W; }); state.slides--; fit(); commit(); toast(`Slide ${i + 1} gelöscht`); return; }
+      state.layers.forEach(x => { if (x.x > (i + 1) * W) x.x -= W; }); state.slides--; fit(); commit(); toast(`Slide ${i + 1} gelöscht`, 'Rückgängig', undo); return; }
     case 'curveReset': P.curves[ui.curveCh] = ID_CURVE.slice(); commit(); return;
     case 'curveS': P.curves[ui.curveCh] = [0, .2, .5, .8, 1]; commit(); return;
     case 'curveFade': P.curves[ui.curveCh] = [.08, .27, .5, .74, .95]; commit(); return;
@@ -952,6 +979,8 @@ $('#projGrid').addEventListener('click', async e => {
 $('#projNew').addEventListener('click', () => { $('#projSheet').hidden = true; newProject(); });
 $('#closeProj').addEventListener('click', () => $('#projSheet').hidden = true);
 $('#projBtn').addEventListener('click', openProjects);
+$('#helpBtn').addEventListener('click', () => $('#helpSheet').hidden = false);
+$('#closeHelp').addEventListener('click', () => $('#helpSheet').hidden = true);
 
 /* ---------- Vorschau ---------- */
 function openPreview() {
@@ -1036,7 +1065,7 @@ document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
   else if ((e.key === 'Delete' || e.key === 'Backspace') && l) { e.preventDefault(); action('del', l); }
   else if (l && !l.locked && e.key.startsWith('Arrow')) { e.preventDefault(); const s = e.shiftKey ? 50 : 5; if (e.key === 'ArrowLeft') l.x -= s; if (e.key === 'ArrowRight') l.x += s; if (e.key === 'ArrowUp') l.y -= s; if (e.key === 'ArrowDown') l.y += s; requestRender(); clearTimeout(keyT); keyT = setTimeout(pushHistory, 400); }
-  else if (e.key === 'Escape') { for (const s of ['#exportSheet', '#previewSheet', '#projSheet']) if (!$(s).hidden) { $(s).hidden = true; return; } if (ui.pick) { ui.pick = false; renderPanel(); } else selectLayer(null); }
+  else if (e.key === 'Escape') { for (const s of ['#exportSheet', '#previewSheet', '#projSheet', '#helpSheet']) if (!$(s).hidden) { $(s).hidden = true; return; } if (ui.pick) { ui.pick = false; renderPanel(); } else selectLayer(null); }
 });
 let keyT;
 stage.addEventListener('dragover', e => e.preventDefault());
