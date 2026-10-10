@@ -9,7 +9,7 @@
   --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
   color-scheme:dark;
 }
-html,body{height:100%}
+html{height:100%;height:100dvh}body{height:100%}
 body{background:var(--bg);color:var(--fg);font-family:var(--ui);font-size:14px;overflow:hidden;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none}
 button,input,textarea,select{font:inherit;color:inherit}
 button{cursor:pointer;border:0;background:none}
@@ -273,3 +273,5 @@ input[type=range]{height:32px}
 .help ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;color:var(--muted);font-size:13.5px;line-height:1.45}
 .help b{color:var(--fg);font-weight:600}
 @media (max-width:420px){ #helpBtn{display:none} }
+
+#app{height:100%}
