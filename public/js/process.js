@@ -378,3 +378,41 @@ export function wbFromPoint(canvas, x, y) {
   }
   return { temp: Math.round(best.t * 100), tint: Math.round(best.nn * 100) };
 }
+
+/* ---------- Freistellen: Motiv vor Text legen ---------- */
+/* Strich-Maske in normierten Bildkoordinaten; mit Kantenerkennung wird nur ähnliche Farbe erfasst */
+export function cutMask(src, strokes) {
+  const s = Math.min(1, 720 / Math.max(src.width, src.height)), mw = Math.max(1, Math.round(src.width * s)), mh = Math.max(1, Math.round(src.height * s)), MM = Math.max(mw, mh);
+  const ref = shrink(src, mw, mh).getContext('2d', { willReadFrequently: true }).getImageData(0, 0, mw, mh).data, a = new Float32Array(mw * mh);
+  for (const st of strokes) {
+    const R = Math.max(1.5, st.s * MM), erase = st.m === 'erase', smart = st.smart && !erase, pts = st.p;
+    // Referenzfarbe: Startpunkt des Strichs; sie folgt nur weichen Farbverläufen, nicht über Kanten in den Hintergrund
+    const col = (cx, cy) => { const i = (clamp(Math.round(cy), 0, mh - 1) * mw + clamp(Math.round(cx), 0, mw - 1)) * 4; return [ref[i], ref[i + 1], ref[i + 2]]; };
+    let cur = smart ? col(pts[0] * mw, pts[1] * mh) : null;
+    const dab = (cx, cy) => {
+      let rr = 0, gg = 0, bb = 0;
+      if (smart) { const c2 = col(cx, cy); if (Math.hypot(c2[0] - cur[0], c2[1] - cur[1], c2[2] - cur[2]) < 34) cur = c2; [rr, gg, bb] = cur; }
+      const y0 = Math.max(0, Math.floor(cy - R)), y1 = Math.min(mh - 1, Math.ceil(cy + R)), x0 = Math.max(0, Math.floor(cx - R)), x1 = Math.min(mw - 1, Math.ceil(cx + R));
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        const d = Math.hypot(x - cx, y - cy) / R; if (d >= 1) continue;
+        let w = d < .55 ? 1 : 1 - (d - .55) / .45;
+        if (smart) { const j = (y * mw + x) * 4, dist = Math.hypot(ref[j] - rr, ref[j + 1] - gg, ref[j + 2] - bb); w *= clamp(1 - (dist - 28) / 46); if (w <= 0) continue; }
+        const pi = y * mw + x; a[pi] = erase ? a[pi] * (1 - w) : a[pi] + (1 - a[pi]) * w;
+      }
+    };
+    for (let i = 0; i < pts.length; i += 2) {
+      const px = pts[i] * mw, py = pts[i + 1] * mh;
+      if (i >= 2) { const qx = pts[i - 2] * mw, qy = pts[i - 1] * mh, dist = Math.hypot(px - qx, py - qy), steps = Math.floor(dist / (R * .3));
+        for (let j = 1; j < steps; j++) dab(qx + (px - qx) * j / steps, qy + (py - qy) * j / steps); }
+      dab(px, py);
+    }
+  }
+  const c = mk(mw, mh), x = c.getContext('2d'), id = x.createImageData(mw, mh);
+  for (let i = 0; i < a.length; i++) { const j = i * 4; id.data[j] = id.data[j + 1] = id.data[j + 2] = 255; id.data[j + 3] = a[i] * 255; }
+  x.putImageData(id, 0, 0); return c;
+}
+export function cutout(img, strokes) {
+  const mask = cutMask(img, strokes), c = mk(img.width, img.height), x = c.getContext('2d');
+  x.drawImage(img, 0, 0); x.globalCompositeOperation = 'destination-in'; x.imageSmoothingQuality = 'high'; x.drawImage(mask, 0, 0, img.width, img.height);
+  return { img: c, mask };
+}

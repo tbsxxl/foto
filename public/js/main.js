@@ -2,7 +2,7 @@
 import { $, clamp, clone, de, esc, state, ui, sources, cache, ids, newId, dims, selLayer, toast, defParams, upgradeParams,
   FORMATS, HSL_BANDS, LOOKS, LOOK_CATS, FONTS, TEXT_COLORS, BG_COLORS, FRAME_COLORS, RATIOS, ID_CURVE, BLENDS, STAMP_COLORS } from './core.js';
 import { mk, makeAux, processImage, prepare, curveFn, pickHealSource, wbFromPoint, LEAKS } from './process.js';
-import { flags, loadScaled, orientCanvas, cropAspect, cropRect, boxOf, drawScene, ensureCache, releaseAux, cacheKey, drawSample, SHAPES, BG_PATTERNS, FRAMES } from './scene.js';
+import { flags, getCut, hasCut, loadScaled, orientCanvas, cropAspect, cropRect, boxOf, drawScene, ensureCache, releaseAux, cacheKey, drawSample, SHAPES, BG_PATTERNS, FRAMES } from './scene.js';
 import { newImageLayer, newTextLayer, newShapeLayer, coverSlide, coverAll, computeBox } from './layers.js';
 import { TEMPLATES, TPL_CATS, tplSVG, tplDef, applyTemplate, layout, relink, shufflePhotos, releaseTemplate } from './templates.js';
 import * as store from './store.js';
@@ -73,7 +73,7 @@ function imgPt(l, p) {
 const localOf = (G, u, v) => ({ x: (u * G.iw - G.sx) * G.k - G.bx.w / 2, y: (v * G.ih - G.sy) * G.k - G.bx.h / 2 + G.bx.iy });
 
 /* ---------- Werkzeuge ---------- */
-const TOOL_OF_TAB = { selektiv: 'mask', pinsel: 'brush', reparieren: 'heal', fokus: 'focus', zuschnitt: 'crop' };
+const TOOL_OF_TAB = { freistellen: 'cut', selektiv: 'mask', pinsel: 'brush', reparieren: 'heal', fokus: 'focus', zuschnitt: 'crop' };
 function activeTool() { const l = selLayer(); if (!l || l.type !== 'image' || !l.srcId) return null; if (ui.pick) return 'wb'; return TOOL_OF_TAB[ui.tab.image] || null; }
 function drawToolOverlay(l) {
   const tool = activeTool(), G = imgGeom(l); if (!G) return; const s = view.s, p = l.params;
@@ -90,6 +90,12 @@ function drawToolOverlay(l) {
     else { const a = b.angle + Math.PI / 2; line(P, a, -R(b.size), false); line(P, a, R(b.size), false); line(P, a, -R(b.size + b.feather), true); line(P, a, R(b.size + b.feather), true); }
     pin(P, true); }
   else if (tool === 'heal') p.heal.forEach(h => { const P = localOf(G, h.x, h.y); ring(P, R(h.r), R(h.r), 0, true); });
+  else if (tool === 'cut') {
+    const c = G.c; if (ui.cutShow && c.proc && l.cut && l.cut.strokes.length) { const m = getCut(l, c.proc).mask;
+      if (!m.tint || m.tintKey !== m) { const t = mk(m.width, m.height), tx = t.getContext('2d'); tx.drawImage(m, 0, 0); tx.globalCompositeOperation = 'source-in'; tx.fillStyle = 'rgba(255,50,70,.55)'; tx.fillRect(0, 0, t.width, t.height); m.tint = t; m.tintKey = m; }
+      const [sx, sy, sw, sh] = cropRect(m.width, m.height, l); ctx.drawImage(m.tint, sx, sy, sw, sh, -G.bx.w / 2, -G.bx.h / 2 + G.bx.iy, G.bx.w, G.bx.h); }
+    if (ui.cursor) { const P = localOf(G, ui.cursor.u, ui.cursor.v); ring(P, R(ui.cutSize / 100), R(ui.cutSize / 100), 0, ui.cutMode === 'erase'); }
+  }
   else if (tool === 'brush' && ui.cursor) { const P = localOf(G, ui.cursor.u, ui.cursor.v); ring(P, R(ui.brushSize / 100), R(ui.brushSize / 100), 0, false); }
   ctx.restore();
 }
@@ -134,6 +140,13 @@ function startTool(tool, l, p) {
     const r = ui.healSize / 100, src = pickHealSource(G.c.prep, ip.u, ip.v, r);
     P.heal.push({ x: +ip.u.toFixed(4), y: +ip.v.toFixed(4), r, sx: +src.sx.toFixed(4), sy: +src.sy.toFixed(4) }); commit(); return { mode: 'tap' };
   }
+  if (tool === 'cut') {
+    if (!ip.inside) return null;
+    if (!l.cut) l.cut = { on: true, strokes: [] }; l.cut.on = true;
+    const st = { m: ui.cutMode, s: ui.cutSize / 100, smart: ui.cutSmart, p: [+ip.u.toFixed(4), +ip.v.toFixed(4)] };
+    l.cut.strokes.push(st); ui.cursor = { u: ip.u, v: ip.v }; flags.throttle = 110;
+    return { mode: 'brush', st, l, arr: l.cut.strokes, moved: true };
+  }
   if (tool === 'brush') {
     if (!ip.inside) return null;
     const st = { m: ui.brushMode, s: ui.brushSize / 100, k: ui.brushStrength / 100, p: [+ip.u.toFixed(4), +ip.v.toFixed(4)] };
@@ -158,7 +171,7 @@ cv.addEventListener('pointerdown', e => {
   } else if (ptrs.size === 2) {
     const [a, b] = [...ptrs.values()];
     const mid = { sx: (a.sx + b.sx) / 2, sy: (a.sy + b.sy) / 2 }, dist = Math.hypot(a.sx - b.sx, a.sy - b.sy), ang = Math.atan2(b.sy - a.sy, b.sx - a.sx);
-    if (gest && gest.mode === 'brush') { const arr = gest.l.params.brush; if (arr[arr.length - 1] === gest.st && gest.st.p.length < 8) arr.pop(); flags.throttle = 0; }
+    if (gest && gest.mode === 'brush') { const arr = gest.arr || gest.l.params.brush; if (arr[arr.length - 1] === gest.st && gest.st.p.length < 8) arr.pop(); flags.throttle = 0; }
     if (gest && gest.mode === 'crop') gest = { mode: 'pinchCrop', l: gest.l, dist, z0: gest.l.crop.zoom, moved: true };
     else if (gest && gest.mode === 'pinDrag' && gest.get() && gest.get().rx != null) { const m = gest.get(); gest = { mode: 'pinchPin', m, dist, ang, rx0: m.rx, ry0: m.ry, a0: m.angle || 0, moved: true }; }
     else if (gest && (gest.mode === 'move' || gest.mode === 'handle') && gest.l) gest = { mode: 'pinchLayer', l: gest.l, dist, ang, size0: sizeOf(gest.l), rot0: gest.l.rot, moved: true };
@@ -167,7 +180,7 @@ cv.addEventListener('pointerdown', e => {
 });
 cv.addEventListener('pointermove', e => {
   const p = toCanvas(e);
-  if (!ptrs.has(e.pointerId) || !gest) { if (activeTool() === 'brush' && e.pointerType === 'mouse') { const ip = imgPt(selLayer(), p); if (ip) { ui.cursor = { u: ip.u, v: ip.v }; requestRender(); } } return; }
+  if (!ptrs.has(e.pointerId) || !gest) { if (/^(brush|cut)$/.test(activeTool() || '') && e.pointerType === 'mouse') { const ip = imgPt(selLayer(), p); if (ip) { ui.cursor = { u: ip.u, v: ip.v }; requestRender(); } } return; }
   const prev = ptrs.get(e.pointerId); ptrs.set(e.pointerId, p);
   if (Math.abs(p.sx - prev.sx) + Math.abs(p.sy - prev.sy) > 0) gest.moved = gest.moved || Math.hypot(p.sx - (gest.sx ?? prev.sx), p.sy - (gest.sy ?? prev.sy)) > 3 || gest.mode !== 'pan';
   const m = gest.mode;
@@ -258,6 +271,7 @@ function updateTop() {
   $('#fmtTag').textContent = `${state.format} · ${state.slides} ${state.slides === 1 ? 'Slide' : 'Slides'}`;
   const tool = activeTool(), l = selLayer();
   $('#stageHint').textContent = tool === 'mask' ? 'Tippe ins Foto für einen neuen Punkt · Punkt ziehen verschiebt · zwei Finger: Größe & Drehung'
+    : tool === 'cut' ? (ui.cutMode === 'erase' ? 'Radierer: übermaltes Motiv wieder zurücknehmen' : 'Male über das Motiv – es liegt dann vor Text & Elementen · zwei Finger: Ansicht')
     : tool === 'brush' ? `Mit dem Finger malen: ${BRUSH_MODES.find(b => b[0] === ui.brushMode)[1]} · zwei Finger: Ansicht verschieben`
     : tool === 'heal' ? 'Tippe auf Flecken, Fussel oder störende Punkte'
     : tool === 'focus' ? 'Ziehen verschiebt den Schärfebereich' : tool === 'crop' ? 'Im Foto ziehen verschiebt den Ausschnitt · zwei Finger zoomen'
@@ -269,7 +283,7 @@ function renderUI() { renderTabs(); renderHead(); renderPanel(); updateTop(); re
 const TABSETS = {
   none: [['canvas', 'Leinwand'], ['vorlagen', 'Vorlagen'], ['ebenen', 'Ebenen'], ['addPhoto', '<b>+</b>Foto'], ['addCam', '<b>+</b>Kamera'], ['addText', '<b>+</b>Text'], ['element', '<b>+</b>Element']],
   image: [['looks', 'Looks'], ['anpassen', 'Anpassen'], ['licht', 'Licht'], ['farbe', 'Farbe'], ['grading', 'Color Grading'], ['kurve', 'Kurve'], ['details', 'Details'], ['effekte', 'Effekte'], ['stempel', 'Stempel'],
-    ['selektiv', 'Selektiv'], ['pinsel', 'Pinsel'], ['reparieren', 'Reparieren'], ['fokus', 'Fokus'], ['zuschnitt', 'Zuschnitt'], ['ebene', 'Ebene']],
+    ['freistellen', 'Freistellen'], ['selektiv', 'Selektiv'], ['pinsel', 'Pinsel'], ['reparieren', 'Reparieren'], ['fokus', 'Fokus'], ['zuschnitt', 'Zuschnitt'], ['ebene', 'Ebene']],
   text: [['text', 'Text'], ['stil', 'Stil'], ['ebene', 'Ebene']],
   shape: [['form', 'Form'], ['ebene', 'Ebene']],
   slot: [['slot', 'Leeres Feld']]
@@ -525,6 +539,14 @@ const IMAGE_PANELS = {
     ${toggle('minv', 'Umkehren (außen statt innen)', m.inv)}
     <div class="row">${btn('maskDel', 'Punkt löschen', 'danger')}${btn('maskDup', 'Duplizieren')}</div>`;
   },
+  freistellen: (l, p) => { const n = l.cut ? l.cut.strokes.length : 0;
+    return `<p class="note"><b>Text hinter das Motiv:</b> Lege Text oder Sticker über das Foto, dann male hier mit dem Finger über das Motiv. Alles Bemalte liegt vor dem Text.</p>
+    <div class="chips">${chip('data-cutmode="add"', 'Motiv malen', ui.cutMode !== 'erase')}${chip('data-cutmode="erase"', 'Radierer', ui.cutMode === 'erase')}</div>
+    ${group('', slider('ui.cutSize', 'Pinselgröße', 1, 25, .5, 'n', 5))}
+    ${toggle('cutsmart', 'Kantenerkennung (malt nur ähnliche Farben)', ui.cutSmart)}${toggle('cutshow', 'Maske rot anzeigen', ui.cutShow)}
+    ${n ? toggle('cuton', 'Motiv vorne', l.cut.on !== false) : ''}
+    <div class="row">${btn('cutUndo', 'Letzten Strich entfernen', 'ghost', n ? '' : 'disabled')}${btn('cutClear', 'Maske löschen', 'danger', n ? '' : 'disabled')}</div>
+    <p class="note">Tipp: Für Kanten kleinen Pinsel nehmen und reinzoomen (zwei Finger). Der Text muss in der Ebenen-Reihenfolge über dem Foto liegen.</p>`; },
   pinsel: (l, p) => `<div class="chips">${BRUSH_MODES.map(([k, lb]) => chip(`data-bmode="${k}"`, lb, ui.brushMode === k)).join('')}</div>
     ${group('', slider('ui.brushSize', 'Pinselgröße', 1, 30, .5, 'n', 6) + slider('ui.brushStrength', 'Stärke', 5, 100, 1, 'pct', 50))}
     <p class="note">Male direkt auf das Foto – wie der Pinsel in Snapseed. Mehrfach drübermalen verstärkt.</p>
@@ -594,7 +616,8 @@ panel.addEventListener('click', async e => {
     const on = t.getAttribute('aria-checked') !== 'true', k = d.tog;
     if (k === 'grad') state.bg.grad = on; else if (k === 'grid') { ui.grid = on; renderPanel(); requestRender(); return; }
     else if (k === 'stamp') l.params.stamp = on; else if (k === 'shadow' || k === 'tshadow') l.shadow = on; else if (k === 'upper') l.upper = on; else if (k === 'glow') l.glow = on;
-    else if (k === 'outline') l.outline = on; else if (k === 'minv') l.params.masks[ui.maskSel].inv = on;
+    else if (k === 'outline') l.outline = on; else if (k === 'cutsmart') { ui.cutSmart = on; renderPanel(); return; } else if (k === 'cutshow') { ui.cutShow = on; renderPanel(); requestRender(); return; }
+    else if (k === 'cuton') l.cut.on = on; else if (k === 'minv') l.params.masks[ui.maskSel].inv = on;
     commit();
   }
   else if (d.tpl) { const T = tplDef(d.tpl), v = state.tpl && state.tpl.kind === d.tpl ? (state.tpl.v + 1) % T.vars.length : 0; const n0 = state.slides;
@@ -625,6 +648,7 @@ panel.addEventListener('click', async e => {
   else if (d.spos) { l.params.stampStyle.pos = d.spos; l.params.stamp = true; commit(); }
   else if (d.mask) { ui.maskSel = +d.mask; renderPanel(); requestRender(); }
   else if (d.mkind) { const m = l.params.masks[ui.maskSel]; m.kind = d.mkind; if (m.kind === 'linear') { m.rx = .25; m.feather = .6; m.angle = Math.PI / 2; } else { m.rx = m.ry = .16; m.angle = 0; } commit(); }
+  else if (d.cutmode) { ui.cutMode = d.cutmode; renderPanel(); updateTop(); }
   else if (d.bmode) { ui.brushMode = d.bmode; renderPanel(); updateTop(); }
   else if (d.blur) { l.params.blur.mode = d.blur; commit(); }
   else if (d.addshape) { const { W, H } = dims(), s = newShapeLayer(d.addshape, (visibleSlide() + .5) * W, H / 2); state.layers.push(s); ui.tab.shape = 'form'; selectLayer(s.id); pushHistory(); }
@@ -684,6 +708,8 @@ function action(a, l) {
     case 'exportPresets': { const blob = new Blob([JSON.stringify({ streifzug: 1, presets: loadPresets() }, null, 1)], { type: 'application/json' }); webSave([{ blob, name: 'streifzug-presets.json' }]); return; }
     case 'maskDel': P.masks.splice(ui.maskSel, 1); ui.maskSel = Math.max(0, ui.maskSel - 1); commit(); return;
     case 'maskDup': { const m = clone(P.masks[ui.maskSel]); m.x = clamp(m.x + .05); m.y = clamp(m.y + .05); P.masks.push(m); ui.maskSel = P.masks.length - 1; commit(); return; }
+    case 'cutUndo': l.cut.strokes.pop(); commit(); return;
+    case 'cutClear': l.cut = { on: true, strokes: [] }; commit(); return;
     case 'brushUndo': P.brush.pop(); commit(); return;
     case 'brushClear': P.brush = []; commit(); return;
     case 'healUndo': P.heal.pop(); commit(); return;
@@ -693,7 +719,7 @@ function action(a, l) {
 /* Kopie ohne Vorlagen-Verknüpfung */
 function unlinked(c) { for (const k of ['grp', 'dupOf', 'slot', 'tplKind', 'tplKey', 'pane', 'paneKey', 'userEdited']) delete c[k]; if (c.crop) delete c.crop.box; if (c.params) c.params = clone(c.params); return c; }
 /* Drehen/Spiegeln verändert das Bildkoordinatensystem – ortsgebundene Bearbeitungen passen dann nicht mehr */
-function resetGeoEdits(l) { const P = l.params; if (P.masks.length || P.brush.length || P.heal.length) toast('Punkte, Pinsel und Reparaturen wurden zurückgesetzt'); P.masks = []; P.brush = []; P.heal = []; }
+function resetGeoEdits(l) { if (l.cut) l.cut.strokes = []; const P = l.params; if (P.masks.length || P.brush.length || P.heal.length) toast('Punkte, Pinsel und Reparaturen wurden zurückgesetzt'); P.masks = []; P.brush = []; P.heal = []; }
 function loadPresets() { try { return JSON.parse(localStorage.getItem('streifzug.presets') || '[]'); } catch { return []; } }
 function savePresets(p) { try { localStorage.setItem('streifzug.presets', JSON.stringify(p)); } catch { toast('Presets können in diesem Browser nicht gespeichert werden.'); } }
 async function importPresets(f) {

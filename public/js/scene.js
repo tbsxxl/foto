@@ -1,6 +1,6 @@
 /* Ebenen, Quellen, Zeichnen der Szene */
 import { clamp, seeded, state, ui, sources, cache, dims, FONTS, stampText } from './core.js';
-import { mk, makeAux, processImage, prepare } from './process.js';
+import { mk, makeAux, processImage, prepare, cutout } from './process.js';
 
 export const flags = { fontsTick: 0, histDirty: false, throttle: 0, pending: false };
 
@@ -97,13 +97,37 @@ function drawBg(c, T, H) {
 export function drawScene(c, opts = {}) {
   const { W, H } = dims(), T = W * state.slides;
   drawBg(c, T, H);
+  // freigestelltes Motiv liegt über den Texten/Elementen darüber – bis zum nächsten Foto
+  let pend = null;
+  const flush = () => { if (pend) { drawCut(c, pend, opts); pend = null; } };
   for (const l of state.layers) {
     if (l.hidden) continue;
+    if (l.type === 'image') flush();
     c.save(); c.translate(l.x, l.y); c.rotate(l.rot * Math.PI / 180); c.globalAlpha = l.opacity ?? 1;
     if (l.blend && l.blend !== 'source-over') c.globalCompositeOperation = l.blend;
     if (l.type === 'image') drawImageLayer(c, l, opts); else if (l.type === 'text') drawTextLayer(c, l); else drawShapeLayer(c, l);
     c.restore();
+    if (l.type === 'image' && l.srcId && hasCut(l)) pend = l;
   }
+  flush();
+}
+export const hasCut = l => !!(l.cut && l.cut.on !== false && l.cut.strokes && l.cut.strokes.length);
+const cutCache = new WeakMap();
+/* Freistellung zum verarbeiteten Bild holen (gecacht; beim Malen gedrosselt) */
+export function getCut(l, img) {
+  const key = JSON.stringify(l.cut.strokes); let e = cutCache.get(img);
+  if (e && e.key === key) return e;
+  if (e && flags.throttle && performance.now() - e.t < flags.throttle) { flags.pending = true; return e; }
+  e = { key, t: performance.now(), ...cutout(img, l.cut.strokes) }; cutCache.set(img, e); return e;
+}
+function drawCut(c, l, opts) {
+  if (ui.showOrig && l.id === ui.sel && !opts.procs) return;
+  const img = opts.procs ? opts.procs.get(cacheKey(l)) : ensureCache(l)?.proc; if (!img) return;
+  const cut = getCut(l, img).img, bx = boxOf(l), { w, h, iy } = bx, clip = FRAMES.has(l.shape) ? 'rect' : l.shape;
+  c.save(); c.translate(l.x, l.y); c.rotate(l.rot * Math.PI / 180); c.globalAlpha = l.opacity ?? 1;
+  shapePath(c, clip, -w / 2, -h / 2 + iy, w, h, l.radius ?? 7); c.clip();
+  const [sx, sy, sw, sh] = cropRect(cut.width, cut.height, l); c.imageSmoothingQuality = 'high'; c.drawImage(cut, sx, sy, sw, sh, -w / 2, -h / 2 + iy, w, h);
+  c.restore();
 }
 /* verknüpfte Fenster eines Fotos teilen sich die Berechnung */
 export const cacheKey = l => l.grp ? 'g:' + l.grp : l.id;
