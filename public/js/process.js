@@ -15,13 +15,17 @@ export function eff(p) {
     vig: both('vignette'), vigSize: (p.vigSize ?? 50) / 100, gr: pos('grain'), grSize: (p.grainSize ?? 25) / 100, fade: pos('fade'),
     glow: pos('glow'), hal: pos('halation'), ca: pos('ca'), leak: pos('leak'), leakKind: p.leak ? p.leakKind : (L.leakKind || 0),
     dust: pos('dust'), lowres: pos('lowres'),
-    mono: L.mono ? a : 0, monoTone: L.monoTone || null,
-    split: L.split ? { sh: L.split.sh.map(v => v * a), hi: L.split.hi.map(v => v * a) } : null,
+    mono: L.mono ? a : 0, monoTone: L.monoTone || null, monoMix: L.monoMix || null,
+    mixM: L.mix ? L.mix.map((row, i) => row.map((v, j) => (i === j ? 1 : 0) + (v - (i === j ? 1 : 0)) * a)) : null,
+    lcurve: L.curve ? L.curve.map((v, i) => ID_CURVE[i] + (v - ID_CURVE[i]) * a) : null,
+    split: L.split ? { sh: (L.split.sh || [0, 0, 0]).map(v => v * a), hi: (L.split.hi || [0, 0, 0]).map(v => v * a) } : null,
     ch: L.ch || null, chA: a, lo: p.auto ? p.auto.lo : 0, hi: p.auto ? p.auto.hi : 1,
-    curves: p.curves, hsl: p.hsl, grade: p.grade, masks: p.masks || [], brush: p.brush || [], blur: p.blur,
+    curves: p.curves, hsl: L.hsl ? mergeHsl(p.hsl, L.hsl, a) : p.hsl, grade: p.grade, masks: p.masks || [], brush: p.brush || [], blur: p.blur,
     stamp: p.stamp, stampStyle: p.stampStyle || { fmt: 'yy', color: 'orange', pos: 'br' }
   };
 }
+/* Look-eigene Farbverschiebungen (Farbton/Sättigung/Luminanz je Farbbereich) zu den eigenen Reglern addieren */
+function mergeHsl(user, look, a) { const o = {}; for (let k = 0; k < 8; k++) { const u = user[k] || [0, 0, 0], l = look[k] || [0, 0, 0]; o[k] = [u[0] + l[0] * a, u[1] + l[1] * a, u[2] + l[2] * a]; } return o; }
 export function curveFn(ys) {
   // monotone kubische Interpolation über feste Stützstellen
   const n = ys.length, xs = ys.map((_, i) => i / (n - 1)), dx = 1 / (n - 1);
@@ -33,7 +37,7 @@ export function curveFn(ys) {
 }
 export const isId = ys => ys.every((v, i) => Math.abs(v - ID_CURVE[i]) < 1e-4);
 function toneLUT(e) {
-  const N = 1024, lut = new Float32Array(N), cf = isId(e.curves.rgb) ? null : curveFn(e.curves.rgb);
+  const N = 1024, lut = new Float32Array(N), cf = isId(e.curves.rgb) ? null : curveFn(e.curves.rgb), lcf = e.lcurve && !isId(e.lcurve) ? curveFn(e.lcurve) : null;
   const exm = Math.pow(2, e.ex), brx = Math.pow(2, -e.br * .9), span = Math.max(.05, e.hi - e.lo), f = e.fade * .18;
   for (let i = 0; i < N; i++) {
     let v = clamp((i / (N - 1) - e.lo) / span);
@@ -47,6 +51,7 @@ function toneLUT(e) {
     else if (e.co < 0) v += ((.5 + (v - .5) * .4) - v) * (-e.co);
     v = Math.pow(clamp(v), brx);
     if (cf) v = cf(v);
+    if (lcf) v = lcf(clamp(v));
     v = f + clamp(v) * (1 - f);
     lut[i] = clamp(v);
   }
@@ -154,7 +159,7 @@ export function processImage(aux, p, stampMs) {
   for (let k = 0; k < 8; k++) { const v = e.hsl[k] || [0, 0, 0]; hs[k] = v[0] / 100; sm[k] = v[1] / 100; la[k] = v[2] / 100; if (v[0] || v[1] || v[2]) hslOn = true; }
   const G = e.grade || {}, gS = tintVec(...(G.sh || [0, 0]), .22), gM = tintVec(...(G.mid || [0, 0]), .18), gH = tintVec(...(G.hi || [0, 0]), .22), gG = tintVec(...(G.glob || [0, 0]), .14), gBal = (G.bal || 0) / 100;
   const gradeOn = [gS, gM, gH, gG].some(v => v[0] || v[1] || v[2]);
-  const sp = e.split, vig = e.vig, vStart = clamp(.62 - e.vigSize * .6, .02, .9), gr = e.gr, gs = Math.max(1, M / 1100 * (.4 + e.grSize * 3.2)), mono = e.mono, mt = e.monoTone;
+  const MX = e.mixM, mmx = e.monoMix, sp = e.split, vig = e.vig, vStart = clamp(.62 - e.vigSize * .6, .02, .9), gr = e.gr, gs = Math.max(1, M / 1100 * (.4 + e.grSize * 3.2)), mono = e.mono, mt = e.monoTone;
   const cx = w / 2, cy = h / 2, dx2 = new Float32Array(w), dy2 = new Float32Array(h);
   if (vig) { for (let x = 0; x < w; x++) { const t = (x - cx) / cx; dx2[x] = t * t; } for (let y = 0; y < h; y++) { const t = (y - cy) / cy; dy2[y] = t * t; } }
   const satK = 1 + e.sat, vib = e.vib, chR = ch.r, chG = ch.g, chB = ch.b, dh = e.dh;
@@ -164,6 +169,7 @@ export function processImage(aux, p, stampMs) {
       let r = d[i] / 255, g = d[i + 1] / 255, b = d[i + 2] / 255;
       if (rgbB) { const edge = Math.min(1, Math.abs(lum[pi] - bX[pi]) * 14), k = e.dn * .9 * (1 - edge); r += (rgbB[0][pi] - r) * k; g += (rgbB[1][pi] - g) * k; b += (rgbB[2][pi] - b) * k; }
       r *= wr; g *= wg; b *= wb;
+      if (MX) { const r0 = r, g0 = g, b0 = b; r = MX[0][0] * r0 + MX[0][1] * g0 + MX[0][2] * b0; g = MX[1][0] * r0 + MX[1][1] * g0 + MX[1][2] * b0; b = MX[2][0] * r0 + MX[2][1] * g0 + MX[2][2] * b0; }
       let L = .2126 * r + .7152 * g + .0722 * b; if (L > 1) L = 1;
       let t = tone[(L * 1023) | 0];
       // lokale Anpassungen (Masken, Pinsel)
@@ -197,6 +203,7 @@ export function processImage(aux, p, stampMs) {
       const mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
       let k = satK * (1 + vib * (1 - Math.min(1, (mx - mn) * 1.6))) * (1 + lsat);
       if (dark) k *= 1 + .3 * dh;
+      if (mono && mmx) { const g2 = r * mmx[0] + g * mmx[1] + b * mmx[2]; r += (g2 - r) * mono; g += (g2 - g) * mono; b += (g2 - b) * mono; gray = .2126 * r + .7152 * g + .0722 * b; }
       if (mono) k *= (1 - mono);
       if (k !== 1) { if (k < 0) k = 0; r = gray + (r - gray) * k; g = gray + (g - gray) * k; b = gray + (b - gray) * k; }
       if (mt && mono) { r *= 1 + (mt[0] - 1) * mono; g *= 1 + (mt[1] - 1) * mono; b *= 1 + (mt[2] - 1) * mono; }

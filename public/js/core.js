@@ -19,9 +19,53 @@ export const HSL_BANDS = [
 ];
 
 /* Looks: Werte in Regler-Einheiten /100 (also .2 = Regler +20). Effekt-Schlüssel wie in eff(). */
-export const LOOK_CATS = [['retro', 'Retro & Digicam'], ['film', 'Film'], ['sw', 'S/W'], ['stil', 'Stile']];
+export const LOOK_CATS = [['fuji', 'Fuji'], ['kodak', 'Kodak & Co.'], ['retro', 'Retro & Digicam'], ['film', 'Film-Mix'], ['insta', 'Insta-Klassiker'], ['sw', 'S/W'], ['stil', 'Stile']];
 export const LOOKS = {
   none:     { name: 'Original', cat: '*' },
+  /* Fujifilm-Filmsimulationen (nachempfunden) – hsl: {Farbbereich: [Farbton, Sättigung, Luminanz]}, 0 Rot … 7 Magenta */
+  provia:   { cat: 'fuji', name: 'Provia', contrast: .08, saturation: .06, vibrance: .05 },
+  velvia:   { cat: 'fuji', name: 'Velvia', contrast: .22, saturation: .32, vibrance: .15, blacks: -.1, hsl: { 0: [0, 10, -5], 3: [8, 25, -8], 5: [-5, 18, -12] } },
+  astia:    { cat: 'fuji', name: 'Astia', contrast: -.04, saturation: .08, highlights: -.12, hsl: { 1: [0, -10, 8], 5: [0, 10, 0] } },
+  chrome:   { cat: 'fuji', name: 'Classic Chrome', contrast: .14, saturation: -.22, shadows: -.08, highlights: -.15, curve: [.035, .235, .5, .745, .965],
+              hsl: { 0: [0, -10, -5], 1: [0, -8, 0], 2: [-12, -25, 0], 3: [12, -35, -10], 4: [0, -25, -8], 5: [-8, -12, -18] }, split: { sh: [0, .008, .02], hi: [.02, .012, -.008] } },
+  classicneg: { cat: 'fuji', name: 'Classic Neg', contrast: .2, saturation: -.08, temp: -.02, grain: .08, curve: [.06, .21, .5, .79, .95],
+              hsl: { 0: [-12, 5, -5], 1: [0, -10, 0], 2: [-18, -20, 0], 3: [25, -18, -15], 4: [12, -5, -10], 5: [-12, -8, -15] }, split: { sh: [-.012, .03, .04], hi: [.04, .022, -.02] } },
+  nostalgic: { cat: 'fuji', name: 'Nostalgic Neg', temp: .12, saturation: .04, fade: .08, highlights: -.18, shadows: .06, hsl: { 1: [5, 12, 5], 2: [-6, 10, 4] }, split: { sh: [.03, .012, -.01], hi: [.05, .03, -.02] } },
+  eterna:   { cat: 'fuji', name: 'Eterna', contrast: -.22, saturation: -.3, shadows: .2, highlights: -.22, fade: .06, split: { sh: [0, .02, .03], hi: [.02, .02, 0] } },
+  bleach:   { cat: 'fuji', name: 'Bleach Bypass', contrast: .45, saturation: -.6, clarity: .2, blacks: -.15, highlights: -.1 },
+  proneghi: { cat: 'fuji', name: 'Pro Neg Hi', contrast: .14, saturation: .02, hsl: { 1: [0, -8, 6] } },
+  pronegstd: { cat: 'fuji', name: 'Pro Neg Std', contrast: -.08, saturation: -.05, highlights: -.1, hsl: { 1: [0, -6, 6] } },
+  reala:    { cat: 'fuji', name: 'Reala Ace', contrast: .1, saturation: .08, vibrance: .06, hsl: { 0: [0, 6, 0], 3: [4, 6, 0] } },
+  acros:    { cat: 'fuji', name: 'Acros', mono: true, contrast: .22, grain: .18, clarity: .08, curve: [.02, .22, .5, .78, .98] },
+  acrosR:   { cat: 'fuji', name: 'Acros + R', mono: true, monoMix: [.72, .33, -.05], contrast: .24, grain: .18 },
+  acrosYe:  { cat: 'fuji', name: 'Acros + Ye', mono: true, monoMix: [.5, .48, .02], contrast: .22, grain: .18 },
+  acrosG:   { cat: 'fuji', name: 'Acros + G', mono: true, monoMix: [.22, .72, .06], contrast: .2, grain: .18 },
+  fujisepia: { cat: 'fuji', name: 'Sepia', mono: true, monoTone: [1.1, .98, .8], contrast: .05 },
+  /* Kodak & Co. (nachempfunden) */
+  portra160: { cat: 'kodak', name: 'Portra 160', temp: .06, saturation: -.12, contrast: -.05, highlights: -.2, hsl: { 1: [3, -5, 8] }, split: { sh: [0, .005, .015], hi: [.02, .01, -.005] } },
+  portra800: { cat: 'kodak', name: 'Portra 800', temp: .1, saturation: -.04, grain: .2, fade: .1, shadows: .1, split: { sh: [0, .01, .03], hi: [.04, .02, -.01] } },
+  ektar:    { cat: 'kodak', name: 'Ektar 100', saturation: .3, contrast: .2, vibrance: .1, hsl: { 0: [0, 15, -5], 5: [-5, 15, -5] } },
+  ultramax: { cat: 'kodak', name: 'Ultramax 400', temp: .12, saturation: .2, contrast: .12, grain: .2, split: { sh: [0, .01, .015], hi: [.05, .03, -.02] } },
+  colorplus: { cat: 'kodak', name: 'ColorPlus 200', temp: .18, saturation: .1, fade: .12, grain: .25, highlights: -.1, split: { hi: [.04, .02, -.02], sh: [.01, .01, 0] } },
+  kodachrome: { cat: 'kodak', name: 'Kodachrome 64', contrast: .3, saturation: .18, blacks: -.15, hsl: { 0: [0, 20, -10], 2: [-5, 10, 0], 5: [5, 12, -20] }, split: { sh: [.012, 0, -.02], hi: [.02, .01, 0] } },
+  ektachrome: { cat: 'kodak', name: 'Ektachrome E100', temp: -.08, saturation: .25, contrast: .2, hsl: { 4: [0, 15, 0], 5: [0, 20, 0] } },
+  tmax:     { cat: 'kodak', name: 'T-Max 400', mono: true, contrast: .2, grain: .1, clarity: .06 },
+  cine50:   { cat: 'kodak', name: 'Kunstlicht 50 (Tag)', temp: -.05, contrast: .1, halation: .3, saturation: .05 },
+  lomopurple: { cat: 'kodak', name: 'Lomo Purple', saturation: .15, contrast: .15, mix: [[1, 0, 0], [0, .15, .85], [.1, .8, .1]] },
+  polaroid600: { cat: 'kodak', name: 'Polaroid 600', fade: .25, contrast: -.1, temp: .08, tint: -.05, saturation: -.15, vignette: .25, split: { sh: [0, .03, .04], hi: [.03, .02, 0] } },
+  /* Klassische Insta-Filter (nachempfunden) */
+  clarendon: { cat: 'insta', name: 'Clarendon', contrast: .2, saturation: .15, highlights: .1, temp: -.08, split: { sh: [-.02, 0, .04] } },
+  juno:     { cat: 'insta', name: 'Juno', contrast: .12, saturation: .2, temp: .08, hsl: { 0: [0, 10, 0], 2: [0, 15, 5] } },
+  lark:     { cat: 'insta', name: 'Lark', exposure: .15, saturation: -.1, hsl: { 0: [0, -20, 0], 3: [0, 15, 5], 5: [0, 10, 10] } },
+  gingham:  { cat: 'insta', name: 'Gingham', fade: .25, contrast: -.15, saturation: -.15, temp: .04 },
+  valencia: { cat: 'insta', name: 'Valencia', temp: .2, fade: .1, contrast: .05, exposure: .08 },
+  nashville: { cat: 'insta', name: 'Nashville', temp: .15, tint: .1, fade: .2, exposure: .1, split: { sh: [.06, .02, 0], hi: [.05, 0, -.05] } },
+  xpro:     { cat: 'insta', name: 'X-Pro II', contrast: .35, saturation: .2, vignette: .45, ch: { b: [.08, .85, 1], r: [0, 1.05, .9] } },
+  i1977:    { cat: 'insta', name: '1977', fade: .2, tint: .15, exposure: .1, saturation: .05, split: { sh: [.05, 0, .02] } },
+  hefe:     { cat: 'insta', name: 'Hefe', contrast: .25, saturation: .15, vignette: .4, temp: .1 },
+  earlybird: { cat: 'insta', name: 'Earlybird', temp: .25, fade: .2, vignette: .3, saturation: -.1, contrast: .05 },
+  moon:     { cat: 'insta', name: 'Moon', mono: true, contrast: .1, exposure: .05, fade: .1 },
+  inkwell:  { cat: 'insta', name: 'Inkwell', mono: true, contrast: .15 },
   digicam:  { cat: 'retro', name: "Digicam '06", contrast: .18, saturation: .12, temp: -.1, whites: .35, structure: .3, grain: .14, vignette: .12, ch: { b: [.04, 1, 1], r: [0, 1.02, 1] }, stamp: true },
   ccd:      { cat: 'retro', name: 'CCD', contrast: .12, saturation: .18, temp: -.18, tint: -.04, whites: .5, highlights: .2, sharpen: .45, lowres: .25, ca: .25, grain: .08, stamp: true },
   blitz:    { cat: 'retro', name: 'Blitz', exposure: .25, contrast: .28, shadows: -.25, temp: -.15, saturation: .06, vignette: .38, whites: .45, structure: .15, stamp: true },
@@ -91,7 +135,7 @@ export function upgradeParams(p) {
 export const state = { format: '4:5', slides: 3, bg: { c1: '#efece6', c2: '#a8c5b5', grad: false, dir: 'h', pattern: 'none' }, layers: [] };
 export const ui = {
   sel: null, tab: { none: 'canvas', image: 'looks', text: 'text', shape: 'form' }, showOrig: false, sample: true, hslBand: 0, curveCh: 'rgb', clip: null, guides: [],
-  confirmClear: false, confirmPresets: false, lookCat: 'retro', gradeRange: 'sh', tool: null, maskSel: 0, brushMode: 'dodge', brushSize: 6, brushStrength: 50,
+  confirmClear: false, confirmPresets: false, lookCat: 'fuji', gradeRange: 'sh', tool: null, maskSel: 0, brushMode: 'dodge', brushSize: 6, brushStrength: 50,
   healSize: 3, cutMode: 'add', cutSize: 5, cutSmart: true, cutShow: true, projectId: null, projectName: 'Mein Karussell', panelScroll: 0
 };
 export const sources = new Map();
