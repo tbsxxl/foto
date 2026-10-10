@@ -1,6 +1,6 @@
 /* Ebenen, Quellen, Zeichnen der Szene */
 import { clamp, seeded, state, ui, sources, cache, dims, FONTS, stampText } from './core.js';
-import { mk, makeAux, processImage, prepare, cutout, shrink } from './process.js';
+import { mk, makeAux, processImage, prepare, cutout, shrink, cutHooks } from './process.js';
 import { drawTapeReal, drawClipReal, drawBinderReal, drawDoodle, isDoodle, DOODLE_LIST } from './props.js';
 
 export const flags = { fontsTick: 0, histDirty: false, throttle: 0, pending: false, draft: false };
@@ -187,10 +187,10 @@ export const hasCut = l => !!(l.cut && l.cut.on !== false && l.cut.strokes && l.
 const cutCache = new WeakMap();
 /* Freistellung zum verarbeiteten Bild holen (gecacht; beim Malen gedrosselt) */
 export function getCut(l, img) {
-  const key = JSON.stringify(l.cut.strokes); let e = cutCache.get(img);
+  const opt = { refine: !!l.cut.refine, feather: l.cut.feather || 0, shift: l.cut.shift || 0 }, key = JSON.stringify(l.cut.strokes) + JSON.stringify(opt) + '|' + cutHooks.ver; let e = cutCache.get(img);
   if (e && e.key === key) return e;
   if (e && flags.throttle && performance.now() - e.t < flags.throttle) { flags.pending = true; return e; }
-  e = { key, t: performance.now(), ...cutout(img, l.cut.strokes) }; cutCache.set(img, e); return e;
+  e = { key, t: performance.now(), ...cutout(img, l.cut.strokes, opt) }; cutCache.set(img, e); return e;
 }
 function drawCut(c, l, opts) {
   if (ui.showOrig && l.id === ui.sel && !opts.procs) return;
@@ -256,10 +256,11 @@ function drawImageLayer(c, l, opts) {
 /* Sticker: nur das freigestellte Motiv mit weißem Rand und Schatten */
 function drawSticker(c, l, bx, img) {
   const e = getCut(l, img), m = e.mask, { w, h, iy } = bx;
-  if (!e.outline) { const t = mk(m.width, m.height), tx = t.getContext('2d'); tx.drawImage(m, 0, 0); tx.globalCompositeOperation = 'source-in'; tx.fillStyle = l.borderColor || '#ffffff'; tx.fillRect(0, 0, t.width, t.height);
-    const o = mk(m.width, m.height), ox = o.getContext('2d'), R = Math.max(m.width, m.height) * .016; for (let k = 0; k < 16; k++) { const a = k / 16 * Math.PI * 2; ox.drawImage(t, Math.cos(a) * R, Math.sin(a) * R); } ox.drawImage(t, 0, 0); e.outline = o; }
+  const sb = l.stickerBorder ?? 1.6, ok = sb + '|' + (l.borderColor || '#ffffff');
+  if (e.outKey !== ok) { const t = mk(m.width, m.height), tx = t.getContext('2d'); tx.drawImage(m, 0, 0); tx.globalCompositeOperation = 'source-in'; tx.fillStyle = l.borderColor || '#ffffff'; tx.fillRect(0, 0, t.width, t.height);
+    const o = mk(m.width, m.height), ox = o.getContext('2d'), R = Math.max(m.width, m.height) * sb / 100; if (R > 0) for (let k = 0; k < 24; k++) { const a = k / 24 * Math.PI * 2; ox.drawImage(t, Math.cos(a) * R, Math.sin(a) * R); } ox.drawImage(t, 0, 0); e.outline = o; e.outKey = ok; }
   const [sx, sy, sw, sh] = cropRect(m.width, m.height, l);
-  c.save(); c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = w * .03; c.shadowOffsetY = w * .012; c.drawImage(e.outline, sx, sy, sw, sh, -w / 2, -h / 2 + iy, w, h); c.restore();
+  c.save(); if (l.stickerShadow !== false) { c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = w * .03; c.shadowOffsetY = w * .012; } if (sb > 0 || l.stickerShadow !== false) c.drawImage(sb > 0 ? e.outline : e.img, ...(sb > 0 ? [sx, sy, sw, sh] : cropRect(e.img.width, e.img.height, l)), -w / 2, -h / 2 + iy, w, h); c.restore();
   const [ax, ay, aw, ah] = cropRect(e.img.width, e.img.height, l); c.imageSmoothingQuality = 'high'; c.drawImage(e.img, ax, ay, aw, ah, -w / 2, -h / 2 + iy, w, h);
 }
 /* leeres Vorlagen-Feld: antippen, um ein Foto einzusetzen */

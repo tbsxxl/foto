@@ -136,7 +136,7 @@ export const state = { format: '4:5', slides: 3, bg: { c1: '#efece6', c2: '#a8c5
 export const ui = {
   sel: null, tab: { none: 'canvas', image: 'looks', text: 'text', shape: 'form' }, showOrig: false, sample: true, hslBand: 0, curveCh: 'rgb', clip: null, guides: [],
   confirmClear: false, confirmPresets: false, lookCat: 'fuji', gradeRange: 'sh', tool: null, maskSel: 0, brushMode: 'dodge', brushSize: 6, brushStrength: 50,
-  healSize: 3, cutMode: 'add', cutSize: 5, cutSmart: true, cutShow: true, projectId: null, projectName: 'Mein Karussell', panelScroll: 0
+  healSize: 3, cutMode: 'ai', cutSize: 5, cutSmart: true, cutShow: true, cutView: 'dim', projectId: null, projectName: 'Mein Karussell', panelScroll: 0
 };
 export const sources = new Map();
 export const cache = new Map();

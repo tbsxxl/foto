@@ -1,12 +1,13 @@
 /* Streifzug – Oberfläche, Gesten, Werkzeuge, Export */
 import { $, clamp, clone, de, esc, state, ui, sources, cache, ids, newId, dims, selLayer, toast, defParams, upgradeParams,
   FORMATS, HSL_BANDS, LOOKS, LOOK_CATS, FONTS, TEXT_COLORS, BG_COLORS, FRAME_COLORS, RATIOS, ID_CURVE, BLENDS, STAMP_COLORS } from './core.js';
-import { mk, makeAux, processImage, prepare, curveFn, pickHealSource, wbFromPoint, LEAKS } from './process.js';
+import { mk, makeAux, processImage, prepare, curveFn, pickHealSource, wbFromPoint, LEAKS, shrink } from './process.js';
 import { flags, getCut, hasCut, loadScaled, orientCanvas, cropAspect, cropRect, boxOf, drawScene, ensureCache, releaseAux, cacheKey, drawSample, SHAPES, BG_PATTERNS, FRAMES } from './scene.js';
 import { newImageLayer, newTextLayer, newShapeLayer, coverSlide, coverAll, computeBox } from './layers.js';
 import { isDoodle, doodleSVG, tapeType, TAPE_KINDS, TAPE_PATTERNS, TAPE_COLORS, CLIP_COLORS, BINDER_COLORS } from './props.js';
 import { TEMPLATES, TPL_CATS, tplSVG, tplDef, applyTemplate, layout, relink, shufflePhotos, releaseTemplate } from './templates.js';
 import * as store from './store.js';
+import { cutHooks, maskToPNG } from './process.js';
 
 const PREVIEW_PX = 1200; // Vorschau-Auflösung (Export rechnet mit voller Auflösung)
 
@@ -142,10 +143,14 @@ function drawToolOverlay(l) {
     pin(P, true); }
   else if (tool === 'heal') p.heal.forEach(h => { const P = localOf(G, h.x, h.y); ring(P, R(h.r), R(h.r), 0, true); });
   else if (tool === 'cut') {
-    const c = G.c; if (ui.cutShow && c.proc && l.cut && l.cut.strokes.length) { const m = getCut(l, c.proc).mask;
+    const c = G.c; if (ui.cutView === 'dim' && c.proc && l.cut && l.cut.strokes.length) { const m = getCut(l, c.proc).mask;
+      if (!m.dim) { const t = mk(m.width, m.height), tx = t.getContext('2d'); tx.fillStyle = 'rgba(8,10,14,.74)'; tx.fillRect(0, 0, t.width, t.height); tx.globalCompositeOperation = 'destination-out'; tx.drawImage(m, 0, 0); m.dim = t; }
+      const [sx, sy, sw, sh] = cropRect(m.width, m.height, l); ctx.drawImage(m.dim, sx, sy, sw, sh, -G.bx.w / 2, -G.bx.h / 2 + G.bx.iy, G.bx.w, G.bx.h); }
+    else if (ui.cutView === 'red' && c.proc && l.cut && l.cut.strokes.length) { const m = getCut(l, c.proc).mask;
       if (!m.tint || m.tintKey !== m) { const t = mk(m.width, m.height), tx = t.getContext('2d'); tx.drawImage(m, 0, 0); tx.globalCompositeOperation = 'source-in'; tx.fillStyle = 'rgba(255,50,70,.55)'; tx.fillRect(0, 0, t.width, t.height); m.tint = t; m.tintKey = m; }
       const [sx, sy, sw, sh] = cropRect(m.width, m.height, l); ctx.drawImage(m.tint, sx, sy, sw, sh, -G.bx.w / 2, -G.bx.h / 2 + G.bx.iy, G.bx.w, G.bx.h); }
-    if (ui.cursor) { const P = localOf(G, ui.cursor.u, ui.cursor.v); ring(P, R(ui.cutSize / 100), R(ui.cutSize / 100), 0, ui.cutMode === 'erase'); }
+    if (ui.cursor && !/^ai/.test(ui.cutMode)) { const P = localOf(G, ui.cursor.u, ui.cursor.v); ring(P, R(ui.cutSize / 100), R(ui.cutSize / 100), 0, ui.cutMode === 'erase'); }
+    if (ui.segAt) { const P = localOf(G, ui.segAt.u, ui.segAt.v), t = performance.now() / 300; ring(P, 18 / s + Math.sin(t) * 6 / s, 18 / s + Math.sin(t) * 6 / s, 0, true); pin(P, true); requestAnimationFrame(requestRender); }
   }
   else if (tool === 'brush' && ui.cursor) { const P = localOf(G, ui.cursor.u, ui.cursor.v); ring(P, R(ui.brushSize / 100), R(ui.brushSize / 100), 0, false); }
   ctx.restore();
@@ -203,6 +208,7 @@ function startTool(tool, l, p) {
   }
   if (tool === 'cut') {
     if (!ip.inside) return null;
+    if (/^ai/.test(ui.cutMode)) return { mode: 'aiTap', l, u: ip.u, v: ip.v, sx: p.sx, sy: p.sy, moved: false };
     if (!l.cut) l.cut = { on: true, strokes: [] }; l.cut.on = true;
     const st = { m: ui.cutMode, s: ui.cutSize / 100, smart: ui.cutSmart, p: [+ip.u.toFixed(4), +ip.v.toFixed(4)] };
     l.cut.strokes.push(st); ui.cursor = { u: ip.u, v: ip.v }; flags.throttle = 110;
@@ -243,7 +249,7 @@ cv.addEventListener('pointermove', e => {
   const p = toCanvas(e);
   if (!ptrs.has(e.pointerId) || !gest) { if (/^(brush|cut)$/.test(activeTool() || '') && e.pointerType === 'mouse') { const ip = imgPt(selLayer(), p); if (ip) { ui.cursor = { u: ip.u, v: ip.v }; requestRender(); } } return; }
   const prev = ptrs.get(e.pointerId); ptrs.set(e.pointerId, p);
-  if (Math.abs(p.sx - prev.sx) + Math.abs(p.sy - prev.sy) > 0) gest.moved = gest.moved || Math.hypot(p.sx - (gest.sx ?? prev.sx), p.sy - (gest.sy ?? prev.sy)) > 3 || gest.mode !== 'pan';
+  if (Math.abs(p.sx - prev.sx) + Math.abs(p.sy - prev.sy) > 0) gest.moved = gest.moved || Math.hypot(p.sx - (gest.sx ?? prev.sx), p.sy - (gest.sy ?? prev.sy)) > (gest.mode === 'aiTap' ? 8 : 3) || (gest.mode !== 'pan' && gest.mode !== 'aiTap');
   const m = gest.mode;
   if (m === 'move') { if (gest.l.locked) return; const [nx, ny] = snapMove(gest.l, p.x - gest.dx, p.y - gest.dy); gest.l.x = nx; gest.l.y = ny;
     if (swappable(gest.l)) { const t = swapTarget(gest.l, p); gest.target = t; ui.dropId = t ? t.id : null; } }
@@ -271,7 +277,8 @@ function endPtr(e) {
   if (ptrs.size > 0) { if (gest && /^pinch(Layer|Crop|Pin)$/.test(gest.mode)) gest = { mode: 'none', l: gest.l, moved: true }; return; }
   const g = gest; gest = null; ui.guides = []; flags.throttle = 0; if (!g || !g.target) ui.dropId = null;
   if (g) {
-    if (g.mode === 'pan' && !g.moved && ui.sel && !activeTool()) selectLayer(null);
+    if (g.mode === 'aiTap') { if (!g.moved) runSegment(g.l, g.u, g.v, ui.cutMode); }
+    else if (g.mode === 'pan' && !g.moved && ui.sel && !activeTool()) selectLayer(null);
     else if (g.mode === 'move' && !g.moved && g.l && g.l.type === 'image' && !g.l.srcId) ui.tapPh = g.l.id;
     else if ((g.mode === 'move' || g.mode === 'crop') && !g.moved && g.l && g.l.type === 'image' && g.l.srcId) { const now = performance.now();
       if (lastTap.id === g.l.id && now - lastTap.t < 400) { lastTap.id = null; enterCrop(g.mode !== 'crop'); } else lastTap = { id: g.l.id, t: now };
@@ -298,6 +305,23 @@ function enterCrop(on) {
   ui.tab.image = on ? 'zuschnitt' : 'rahmen'; ui.pick = false; renderUI();
   if (on) toast(l.crop.box ? 'Ziehen verschiebt den Ausschnitt im Panorama' : 'Foto im Rahmen verschieben · Doppeltipp: fertig');
 }
+/* Motiv per Antippen erkennen (lokales Modell, kein Upload) */
+async function runSegment(l, u, v, mode) {
+  if (ui.segBusy) return; const c = ensureCache(l); if (!c) return;
+  ui.segBusy = true; ui.segAt = { u, v }; requestRender();
+  try {
+    const S = await import('./segment.js');
+    toast(S.segmenterReady() ? (mode === 'ai' ? 'Erkenne Motiv …' : 'Erkenne Bereich …') : 'Erkennung wird vorbereitet – einmalig ca. 16 MB, danach offline …');
+    const p = c.prep, k = Math.min(1, 1024 / Math.max(p.width, p.height)), img = k < 1 ? shrink(p, Math.round(p.width * k), Math.round(p.height * k)) : p;
+    const m = await S.segmentAt(img, u, v); let cov = 0; for (let i = 0; i < m.data.length; i += 7) cov += m.data[i] > .5; cov /= m.data.length / 7;
+    if (cov < .002) { toast('Hier wurde nichts erkannt – tippe mitten aufs Motiv'); return; }
+    if (!l.cut) l.cut = { on: true, strokes: [] }; l.cut.on = true; if (l.cut.refine == null) l.cut.refine = true;
+    l.cut.strokes.push({ m: mode, d: maskToPNG(m), p: [+u.toFixed(4), +v.toFixed(4)] });
+    commit(); toast(mode === 'ai' ? 'Motiv erkannt · weitere Teile antippen oder mit „Radieren“ korrigieren' : 'Bereich entfernt');
+  } catch (e) { console.error(e); toast('Die Erkennung ist auf diesem Gerät nicht verfügbar – nutze „Malen“.'); }
+  finally { ui.segBusy = false; ui.segAt = null; requestRender(); }
+}
+cutHooks.onReady = () => requestRender();
 function selectLayer(id) {
   if (ui.sel && ui.sel !== id) releaseAux(selLayer());
   ui.sel = id; ui.pick = false; ui.maskSel = 0; renderUI();
@@ -346,6 +370,7 @@ function updateTop() {
   const tool = activeTool(), l = selLayer();
   const hintEl = $('#stageHint'), prevHint = hintEl.textContent;
   hintEl.textContent = tool === 'mask' ? 'Tippe ins Foto für einen neuen Punkt · Punkt ziehen verschiebt · zwei Finger: Größe & Drehung'
+    : tool === 'cut' && ui.cutMode === 'ai' ? 'Tippe aufs Motiv – es wird automatisch freigestellt' : tool === 'cut' && ui.cutMode === 'aisub' ? 'Tippe auf einen Bereich, der weg soll'
     : tool === 'cut' ? (ui.cutMode === 'erase' ? 'Radierer: übermaltes Motiv wieder zurücknehmen' : 'Male über das Motiv – es liegt dann vor Text & Elementen · zwei Finger: Ansicht')
     : tool === 'brush' ? `Mit dem Finger malen: ${BRUSH_MODES.find(b => b[0] === ui.brushMode)[1]} · zwei Finger: Ansicht verschieben`
     : tool === 'heal' ? 'Tippe auf Flecken, Fussel oder störende Punkte'
@@ -434,7 +459,7 @@ function target(ns) {
   const l = selLayer(), P = l && l.params;
   switch (ns) {
     case 'p': return P; case 'l': return l; case 'c': return l.crop; case 'h': return P.hsl[ui.hslBand]; case 'g': return P.grade[ui.gradeRange]; case 'gr': return P.grade;
-    case 'm': return P.masks[ui.maskSel]; case 'b': return P.blur; case 'pv': return P.persp; case 'ui': return ui; case 'bg': return state.bg; case 'tp': return state.tpl;
+    case 'm': return P.masks[ui.maskSel]; case 'b': return P.blur; case 'pv': return P.persp; case 'ui': return ui; case 'bg': return state.bg; case 'tp': return state.tpl; case 'cut': return l && l.cut;
   }
 }
 function getVal(k) { const [ns, f] = k.split('.'); if (k === 'l.wpct') return Math.round(selLayer().w / dims().W * 100); if (k === 'l.wprop') return Math.round(selLayer().w); const t = target(ns); return t ? t[f] : 0; }
@@ -452,7 +477,7 @@ function paintFill(inp) {
 panel.addEventListener('input', e => {
   const t = e.target, l = selLayer();
   if (t.matches('input[type=range][data-k]')) {
-    const v = +t.value; if (/^(p|h|g|gr|m|b|pv)\./.test(t.dataset.k)) flags.draft = true; setVal(t.dataset.k, v / +t.dataset.scale); t.closest('.sl').querySelector('output').textContent = FMT[t.dataset.fmt](v);
+    const v = +t.value; if (/^(p|h|g|gr|m|b|pv)\./.test(t.dataset.k)) flags.draft = true; if (/^cut\./.test(t.dataset.k)) flags.throttle = 160; setVal(t.dataset.k, v / +t.dataset.scale); t.closest('.sl').querySelector('output').textContent = FMT[t.dataset.fmt](v);
     t.closest('.sl').classList.toggle('changed', v !== +t.dataset.def); paintFill(t);
     if (t.dataset.k.startsWith('h.')) markBands(); if (t.dataset.k.startsWith('g.')) markGrade();
     if (t.dataset.k.startsWith('tp.')) layout(false);
@@ -471,7 +496,7 @@ panel.addEventListener('change', e => {
   if (t.id === 'stampDate') { const [y, m, d] = t.value.split('-').map(Number); if (y) { const old = new Date(l.stampMs); l.stampMs = new Date(y, m - 1, d, old.getHours(), old.getMinutes()).getTime(); commit(); } return; }
   if (t.id === 'presetFile') { importPresets(t.files[0]); t.value = ''; return; }
   if (t.matches('input[type=color]')) pushRecentColor(t.value);
-  if (t.matches('input[type=range],textarea,input[type=color],#capIn')) { if (flags.draft) { flags.draft = false; requestRender(); } pushHistory(); refreshAfterCommit(); }
+  if (t.matches('input[type=range],textarea,input[type=color],#capIn')) { if (flags.draft || flags.throttle) { flags.draft = false; flags.throttle = 0; requestRender(); } pushHistory(); refreshAfterCommit(); }
 });
 panel.addEventListener('dblclick', e => {
   const top = e.target.closest('.sl-top'); if (!top) return; const inp = top.parentElement.querySelector('input');
@@ -690,14 +715,16 @@ const IMAGE_PANELS = {
     ${toggle('minv', 'Umkehren (außen statt innen)', m.inv)}
     <div class="row">${btn('maskDel', 'Punkt löschen', 'danger')}${btn('maskDup', 'Duplizieren')}</div>`;
   },
-  freistellen: (l, p) => { const n = l.cut ? l.cut.strokes.length : 0;
-    return `<p class="note"><b>Text hinter das Motiv:</b> Lege Text oder Sticker über das Foto, dann male hier mit dem Finger über das Motiv. Alles Bemalte liegt vor dem Text.</p>
-    <div class="chips">${chip('data-cutmode="add"', 'Motiv malen', ui.cutMode !== 'erase')}${chip('data-cutmode="erase"', 'Radierer', ui.cutMode === 'erase')}</div>
-    ${group('', slider('ui.cutSize', 'Pinselgröße', 1, 25, .5, 'n', 5))}
-    ${toggle('cutsmart', 'Kantenerkennung (malt nur ähnliche Farben)', ui.cutSmart)}${toggle('cutshow', 'Maske rot anzeigen', ui.cutShow)}
-    ${n ? toggle('cuton', 'Motiv vorne', l.cut.on !== false) : ''}${toggle('sticker', 'Als Sticker ausschneiden (weißer Rand)', l.sticker)}
-    <div class="row">${btn('cutUndo', 'Letzten Strich entfernen', 'ghost', n ? '' : 'disabled')}${btn('cutClear', 'Maske löschen', 'danger', n ? '' : 'disabled')}</div>
-    <p class="note">Tipp: Für Kanten kleinen Pinsel nehmen und reinzoomen (zwei Finger). Der Text muss in der Ebenen-Reihenfolge über dem Foto liegen.</p>`; },
+  freistellen: (l, p) => { const n = l.cut ? l.cut.strokes.length : 0, ai = /^ai/.test(ui.cutMode);
+    return `<div class="chips">${[['ai', '✨ Motiv antippen'], ['add', 'Malen'], ['erase', 'Radieren'], ['aisub', 'Bereich entfernen']].map(([k, lb]) => chip(`data-cutmode="${k}"`, lb, ui.cutMode === k)).join('')}</div>
+    ${ai ? `<p class="note">${ui.cutMode === 'ai' ? '<b>Tippe aufs Motiv</b> – Person, Tier oder Gegenstand wird automatisch erkannt. Nochmal tippen fügt weitere Teile hinzu.' : '<b>Tippe auf einen Bereich</b>, der nicht zum Motiv gehören soll.'} Die Erkennung läuft auf deinem Gerät, es wird nichts hochgeladen.</p>`
+      : group('', slider('ui.cutSize', 'Pinselgröße', 1, 25, .5, 'n', 5)) + (ui.cutMode === 'add' ? toggle('cutsmart', 'Kantenerkennung beim Malen (nur ähnliche Farben)', ui.cutSmart) : '')}
+    ${n ? group('Kante', toggle('cutrefine', 'Kanten an Farben anpassen (Haare, Fell)', !!l.cut.refine) + slider('cut.feather', 'Weichheit', 0, 10, .5, 'd1', 0) + slider('cut.shift', 'Kante schrumpfen / erweitern', -10, 10, .5, 'd1', 0)) : ''}
+    ${group('Ansicht', `<div class="chips">${[['dim', 'Hintergrund abdunkeln'], ['red', 'Maske rot'], ['off', 'Normal']].map(([k, lb]) => chip(`data-cutview="${k}"`, lb, ui.cutView === k)).join('')}</div>`)}
+    ${group('Verwenden', (n ? toggle('cuton', 'Motiv liegt vor Text & Elementen', l.cut.on !== false) : '') + toggle('sticker', 'Nur das Motiv zeigen (Hintergrund weg)', l.sticker)
+      + (l.sticker ? slider('l.stickerBorder', 'Sticker-Rand', 0, 5, .1, 'd1', 1.6) + swatches('frame', ['#ffffff', '#111111', '#f2c14e', '#ff7eb6', '#3f7fe0'], l.borderColor) + toggle('stickershadow', 'Schatten', l.stickerShadow !== false) : ''))}
+    <div class="row">${btn('cutUndo', 'Letzten Schritt entfernen', 'ghost', n ? '' : 'disabled')}${btn('cutClear', 'Alles löschen', 'danger', n ? '' : 'disabled')}${btn('cutCopy', 'Motiv als eigene Ebene', 'ghost', n ? '' : 'disabled')}</div>
+    <p class="note">Text hinter dem Motiv: Text über das Foto legen – das Motiv bleibt davor. Für feine Stellen reinzoomen (zwei Finger) und mit „Malen“/„Radieren“ nacharbeiten.</p>`; },
   pinsel: (l, p) => `<div class="chips">${BRUSH_MODES.map(([k, lb]) => chip(`data-bmode="${k}"`, lb, ui.brushMode === k)).join('')}</div>
     ${group('', slider('ui.brushSize', 'Pinselgröße', 1, 30, .5, 'n', 6) + slider('ui.brushStrength', 'Stärke', 5, 100, 1, 'pct', 50))}
     <p class="note">Male direkt auf das Foto – wie der Pinsel in Snapseed. Mehrfach drübermalen verstärkt.</p>
@@ -790,7 +817,7 @@ panel.addEventListener('click', async e => {
     const on = t.getAttribute('aria-checked') !== 'true', k = d.tog;
     if (k === 'grad') { state.bg.grad = on; if (state.tpl) state.tpl.bgLock = true; } else if (k === 'grid') { ui.grid = on; renderPanel(); requestRender(); return; }
     else if (k === 'stamp') l.params.stamp = on; else if (k === 'shadow' || k === 'tshadow') l.shadow = on; else if (k === 'upper') l.upper = on; else if (k === 'glow') l.glow = on;
-    else if (k === 'outline') l.outline = on; else if (k === 'cutsmart') { ui.cutSmart = on; renderPanel(); return; } else if (k === 'cutshow') { ui.cutShow = on; renderPanel(); requestRender(); return; }
+    else if (k === 'outline') l.outline = on; else if (k === 'cutsmart') { ui.cutSmart = on; renderPanel(); return; } else if (k === 'cutrefine') l.cut.refine = on; else if (k === 'stickershadow') l.stickerShadow = on; else if (k === 'cutshow') { ui.cutShow = on; renderPanel(); requestRender(); return; }
     else if (k === 'cuton') l.cut.on = on; else if (k === 'sticker') { l.sticker = on; if (on && !(l.cut && l.cut.strokes.length)) toast('Male jetzt über das Motiv – nur das wird zum Sticker'); } else if (k === 'minv') l.params.masks[ui.maskSel].inv = on;
     commit();
   }
@@ -836,6 +863,7 @@ panel.addEventListener('click', async e => {
   else if (d.mask) { ui.maskSel = +d.mask; renderPanel(); requestRender(); }
   else if (d.mkind) { const m = l.params.masks[ui.maskSel]; m.kind = d.mkind; if (m.kind === 'linear') { m.rx = .25; m.feather = .6; m.angle = Math.PI / 2; } else { m.rx = m.ry = .16; m.angle = 0; } commit(); }
   else if (d.cutmode) { ui.cutMode = d.cutmode; renderPanel(); updateTop(); }
+  else if (d.cutview) { ui.cutView = d.cutview; renderPanel(); requestRender(); }
   else if (d.bmode) { ui.brushMode = d.bmode; renderPanel(); updateTop(); }
   else if (d.blur) { l.params.blur.mode = d.blur; commit(); }
   else if (d.addshape) { pushList('recentEl', d.addshape, 8); const { W, H } = dims(), s = newShapeLayer(d.addshape, (visibleSlide() + .5) * W, H / 2); state.layers.push(s); ui.tab.shape = 'form'; selectLayer(s.id); pushHistory(); }
@@ -907,6 +935,8 @@ function action(a, l) {
     case 'maskDel': P.masks.splice(ui.maskSel, 1); ui.maskSel = Math.max(0, ui.maskSel - 1); commit(); return;
     case 'maskDup': { const m = clone(P.masks[ui.maskSel]); m.x = clamp(m.x + .05); m.y = clamp(m.y + .05); P.masks.push(m); ui.maskSel = P.masks.length - 1; commit(); return; }
     case 'cutUndo': l.cut.strokes.pop(); commit(); return;
+    case 'cutCopy': { const c = unlinked(clone(l)); c.id = newId(); c.sticker = true; c.stickerBorder = 0; c.shape = 'rect'; c.border = 0; c.edge = undefined; c.x += W * .06; c.y -= H * .03; c.locked = false;
+      state.layers.splice(state.layers.indexOf(l) + 1, 0, c); ui.tab.image = 'rahmen'; ui.sel = c.id; commit(); toast('Motiv als eigene Ebene – frei verschieben, vergrößern, Rand geben'); return; }
     case 'cutClear': l.cut = { on: true, strokes: [] }; commit(); return;
     case 'brushUndo': P.brush.pop(); commit(); return;
     case 'brushClear': P.brush = []; commit(); return;

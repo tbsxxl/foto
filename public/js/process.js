@@ -388,10 +388,57 @@ export function wbFromPoint(canvas, x, y) {
 
 /* ---------- Freistellen: Motiv vor Text legen ---------- */
 /* Strich-Maske in normierten Bildkoordinaten; mit Kantenerkennung wird nur ähnliche Farbe erfasst */
-export function cutMask(src, strokes) {
+/* KI-Masken (Antippen) liegen als PNG im Projekt; Dekodieren ist asynchron, danach wird neu gezeichnet */
+export const cutHooks = { ver: 0, onReady: null };
+const maskImgs = new Map();
+function maskData(d, mw, mh) {
+  let e = maskImgs.get(d);
+  if (!e) { e = { ready: false, sized: new Map() }; maskImgs.set(d, e); const im = new Image();
+    im.onload = () => { e.img = im; e.ready = true; cutHooks.ver++; cutHooks.onReady && cutHooks.onReady(); }; im.onerror = () => { e.ready = true; e.bad = true; cutHooks.ver++; }; im.src = d; }
+  if (!e.ready || e.bad) return null;
+  const k = mw + 'x' + mh; let m = e.sized.get(k);
+  if (!m) { const c = mk(mw, mh), x = c.getContext('2d', { willReadFrequently: true }); x.imageSmoothingQuality = 'high'; x.drawImage(e.img, 0, 0, mw, mh);
+    const px = x.getImageData(0, 0, mw, mh).data; m = new Float32Array(mw * mh); for (let i = 0; i < m.length; i++) m[i] = px[i * 4] / 255; e.sized.set(k, m); if (e.sized.size > 3) e.sized.delete(e.sized.keys().next().value); }
+  return m;
+}
+export function maskToPNG(m, maxSide = 900) { // Ergebnis der Erkennung → kompaktes Graustufen-PNG
+  const s = Math.min(1, maxSide / Math.max(m.w, m.h)), w = Math.max(1, Math.round(m.w * s)), h = Math.max(1, Math.round(m.h * s));
+  const full = mk(m.w, m.h), fx = full.getContext('2d'), id = fx.createImageData(m.w, m.h);
+  for (let i = 0; i < m.data.length; i++) { const v = Math.round(clamp(m.data[i]) * 255), j = i * 4; id.data[j] = id.data[j + 1] = id.data[j + 2] = v; id.data[j + 3] = 255; }
+  fx.putImageData(id, 0, 0); const c = mk(w, h), x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(full, 0, 0, w, h); return c.toDataURL('image/png');
+}
+/* separabler Kastenfilter (Radius r) */
+function boxBlur(a, w, h, r) {
+  if (r < 1) return a; const t = new Float32Array(a.length), o = new Float32Array(a.length), n = 2 * r + 1;
+  for (let y = 0; y < h; y++) { let s = 0; const row = y * w; for (let x = -r; x <= r; x++) s += a[row + clamp(x, 0, w - 1)];
+    for (let x = 0; x < w; x++) { t[row + x] = s / n; s += a[row + Math.min(w - 1, x + r + 1)] - a[row + Math.max(0, x - r)]; } }
+  for (let x = 0; x < w; x++) { let s = 0; for (let y = -r; y <= r; y++) s += t[clamp(y, 0, h - 1) * w + x];
+    for (let y = 0; y < h; y++) { o[y * w + x] = s / n; s += t[Math.min(h - 1, y + r + 1) * w + x] - t[Math.max(0, y - r) * w + x]; } }
+  return o;
+}
+/* Kanten an die Bildfarben anpassen: lokales Farbmodell von Motiv und Hintergrund, Alpha per Projektion (gut für Haare/Fell) */
+function refineEdges(a, ref, mw, mh, MM) {
+  const band = boxBlur(a, mw, mh, Math.max(2, Math.round(MM * .008))), W = mw >> 1 || 1, H = mh >> 1 || 1, N = W * H;
+  const ch = Array.from({ length: 8 }, () => new Float32Array(N));
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const k = y * W + x;
+    for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) { const i = Math.min(mh - 1, 2 * y + dy) * mw + Math.min(mw - 1, 2 * x + dx), j = i * 4, f = a[i], b = 1 - f;
+      ch[0][k] += f * ref[j] / 4; ch[1][k] += f * ref[j + 1] / 4; ch[2][k] += f * ref[j + 2] / 4; ch[3][k] += f / 4; ch[4][k] += b * ref[j] / 4; ch[5][k] += b * ref[j + 1] / 4; ch[6][k] += b * ref[j + 2] / 4; ch[7][k] += b / 4; } }
+  const R = Math.max(3, Math.round(MM * .012)), S = ch.map(c => boxBlur(c, W, H, R)), out = Float32Array.from(a);
+  for (let y = 0; y < mh; y++) for (let x = 0; x < mw; x++) {
+    const i = y * mw + x, bv = band[i]; if (bv < .015 || bv > .985) continue;
+    const k = Math.min(H - 1, y >> 1) * W + Math.min(W - 1, x >> 1), wf = S[3][k], wb = S[7][k]; if (wf < .04 || wb < .04) continue;
+    const fr = S[0][k] / wf, fg = S[1][k] / wf, fb = S[2][k] / wf, br = S[4][k] / wb, bg = S[5][k] / wb, bb = S[6][k] / wb, dr = fr - br, dg = fg - bg, db = fb - bb, L2 = dr * dr + dg * dg + db * db;
+    if (L2 < 500) continue; const j = i * 4, al = clamp(((ref[j] - br) * dr + (ref[j + 1] - bg) * dg + (ref[j + 2] - bb) * db) / L2);
+    const conf = Math.min(1, (L2 - 500) / 4000); out[i] = a[i] * (1 - .8 * conf) + al * .8 * conf;
+  }
+  return out;
+}
+export function cutMask(src, strokes, opt = {}) {
   const s = Math.min(1, 720 / Math.max(src.width, src.height)), mw = Math.max(1, Math.round(src.width * s)), mh = Math.max(1, Math.round(src.height * s)), MM = Math.max(mw, mh);
-  const ref = shrink(src, mw, mh).getContext('2d', { willReadFrequently: true }).getImageData(0, 0, mw, mh).data, a = new Float32Array(mw * mh);
+  const ref = shrink(src, mw, mh).getContext('2d', { willReadFrequently: true }).getImageData(0, 0, mw, mh).data; let a = new Float32Array(mw * mh), incomplete = false;
   for (const st of strokes) {
+    if (st.m === 'ai' || st.m === 'aisub') { const m = maskData(st.d, mw, mh); if (!m) { incomplete = true; continue; }
+      if (st.m === 'ai') for (let i = 0; i < a.length; i++) a[i] = Math.max(a[i], m[i]); else for (let i = 0; i < a.length; i++) a[i] *= 1 - m[i]; continue; }
     const R = Math.max(1.5, st.s * MM), erase = st.m === 'erase', smart = st.smart && !erase, pts = st.p;
     // Referenzfarbe: Startpunkt des Strichs; sie folgt nur weichen Farbverläufen, nicht über Kanten in den Hintergrund
     const col = (cx, cy) => { const i = (clamp(Math.round(cy), 0, mh - 1) * mw + clamp(Math.round(cx), 0, mw - 1)) * 4; return [ref[i], ref[i + 1], ref[i + 2]]; };
@@ -414,12 +461,16 @@ export function cutMask(src, strokes) {
       dab(px, py);
     }
   }
+  if (opt.refine) { a = refineEdges(a, ref, mw, mh, MM); for (let i = 0; i < a.length; i++) if (a[i] < .08) a[i] = 0; else if (a[i] > .94) a[i] = 1; }
+  const f = Math.round((opt.feather || 0) * MM / 720 * 1.5), sh = (opt.shift || 0) * MM / 720 * 1.2;
+  if (f || sh) { const r = Math.max(1, f, Math.ceil(Math.abs(sh))); a = boxBlur(boxBlur(a, mw, mh, r), mw, mh, r);
+    const off = sh / (2 * r + 1); for (let i = 0; i < a.length; i++) { let v = a[i] + off; if (!f) v = (v - .5) * 3 + .5; a[i] = clamp(v); } }
   const c = mk(mw, mh), x = c.getContext('2d'), id = x.createImageData(mw, mh);
   for (let i = 0; i < a.length; i++) { const j = i * 4; id.data[j] = id.data[j + 1] = id.data[j + 2] = 255; id.data[j + 3] = a[i] * 255; }
-  x.putImageData(id, 0, 0); return c;
+  x.putImageData(id, 0, 0); c.incomplete = incomplete; return c;
 }
-export function cutout(img, strokes) {
-  const mask = cutMask(img, strokes), c = mk(img.width, img.height), x = c.getContext('2d');
+export function cutout(img, strokes, opt) {
+  const mask = cutMask(img, strokes, opt), c = mk(img.width, img.height), x = c.getContext('2d');
   x.drawImage(img, 0, 0); x.globalCompositeOperation = 'destination-in'; x.imageSmoothingQuality = 'high'; x.drawImage(mask, 0, 0, img.width, img.height);
   return { img: c, mask };
 }
