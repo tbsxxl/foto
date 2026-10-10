@@ -108,45 +108,104 @@ export function shapePath(c, shape, x, y, w, h, rad = 7, extra = 0) {
 }
 
 /* ---------- Hintergrund ---------- */
-let paperTex = null;
-function paper() {
-  if (paperTex) return paperTex;
-  const c = mk(320, 320), x = c.getContext('2d'), r = seeded(5);
-  for (let i = 0; i < 2600; i++) { x.fillStyle = r() < .5 ? `rgba(0,0,0,${r() * .07})` : `rgba(255,255,255,${r() * .12})`; x.fillRect(r() * 320, r() * 320, 1 + r() * 2, 1 + r() * 2); }
-  x.lineWidth = .6; for (let i = 0; i < 70; i++) { const px = r() * 320, py = r() * 320, a = r() * Math.PI; x.strokeStyle = `rgba(90,70,40,${.05 + r() * .07})`; x.beginPath(); x.moveTo(px, py); x.quadraticCurveTo(px + Math.cos(a) * 8, py + Math.sin(a) * 8 + 3, px + Math.cos(a) * 18, py + Math.sin(a) * 18); x.stroke(); }
-  return paperTex = c;
+/* Papier wird physikalisch nachgebaut: wolkige Faserdichte (groß, nicht kachelnd), Fasern, Körnung und
+   Oberflächenrelief mit Licht von oben links (kachelbar, volle Auflösung), Knitterpapier aus Knickfacetten. */
+const TILE = 640;
+const ph = (x, y, s) => { let h = Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(s | 0, 1442695041); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+function pnoise(x, y, s, P) { // kachelbares Wertrauschen, Periode P Gitterzellen
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi, u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf), m = k => ((k % P) + P) % P;
+  const a = ph(m(xi), m(yi), s), b = ph(m(xi + 1), m(yi), s), c = ph(m(xi), m(yi + 1), s), d = ph(m(xi + 1), m(yi + 1), s);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
 }
-/* Papierstrukturen: einmal pro Größe erzeugt (halbe Auflösung), als Licht/Schatten über der Grundfarbe */
-const TEXTURES = new Set(['crumpled', 'kraft', 'cardboard', 'linen']);
-const texCache = new Map();
-function texture(kind, T, H) {
-  const key = kind + T + 'x' + H; if (texCache.has(key)) return texCache.get(key);
-  const w = Math.max(2, Math.round(T / 2)), h = Math.max(2, Math.round(H / 2)), c = mk(w, h), x = c.getContext('2d'), id = x.createImageData(w, h), d = id.data, r = seeded(kind.length * 31 + 7);
-  const hgt = new Float32Array(w * h);
-  if (kind === 'crumpled') {
-    // Knickfalten: viele zufällige Grate, Licht von oben links
-    for (let k = 0; k < Math.round(w * h / 9000) + 30; k++) {
-      const px = r() * w, py = r() * h, a = r() * Math.PI, nx = Math.cos(a), ny = Math.sin(a), wid = 14 + r() * 50, amp = (r() - .5) * 1.4, len = 80 + r() * 220;
-      const x0 = Math.max(0, Math.floor(px - len)), x1 = Math.min(w - 1, Math.ceil(px + len)), y0 = Math.max(0, Math.floor(py - len)), y1 = Math.min(h - 1, Math.ceil(py + len));
-      for (let y = y0; y <= y1; y++) for (let xx = x0; xx <= x1; xx++) { const dx = xx - px, dy = y - py, along = dx * ny - dy * nx, dist = Math.abs(dx * nx + dy * ny); if (dist > wid || Math.abs(along) > len) continue;
-        hgt[y * w + xx] += amp * (1 - dist / wid) * (1 - Math.abs(along) / len); }
-    }
-  } else for (let i = 0; i < hgt.length; i++) hgt[i] = (r() - .5) * .4;
-  for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++) {
-    const i = y * w + xx; let v;
-    if (kind === 'crumpled') { const gx = hgt[i] - hgt[i - 1 >= 0 ? i - 1 : i], gy = hgt[i] - hgt[i - w >= 0 ? i - w : i]; v = (gx + gy) * 1.3 + (r() - .5) * .05; }
-    else if (kind === 'kraft') v = (r() - .5) * .14 + Math.sin(xx * .9 + Math.sin(y * .05) * 3) * .02;
-    else if (kind === 'cardboard') v = Math.sin(xx / 7) * .05 + (r() - .5) * .1;
-    else v = ((xx % 4 < 1 ? 1 : 0) + (y % 4 < 1 ? 1 : 0)) * .05 - .04 + (r() - .5) * .05;
-    const a = Math.min(1, Math.abs(v)) * (kind === 'crumpled' ? .6 : 1), j = i * 4; d[j] = d[j + 1] = d[j + 2] = v > 0 ? 255 : 0; d[j + 3] = a * 255;
+const pfbm = (x, y, s, P, o) => { let t = 0, a = .5, n = 0, f = 1; for (let i = 0; i < o; i++) { t += a * pnoise(x * f, y * f, s + i * 31, P * f); n += a; a *= .5; f *= 2; } return t / n; };
+const PAPER_KINDS = { paper: { mottle: .034, grain: .024, tooth: .04, toothP: 80, fib: 1300, fibL: [5, 22], fibA: .05 },
+  kraft: { mottle: .055, grain: .03, tooth: .03, toothP: 70, fib: 2600, fibL: [6, 34], fibA: .1, brown: true, specks: 260 },
+  cardboard: { mottle: .07, grain: .04, tooth: .04, toothP: 55, fib: 2000, fibL: [4, 26], fibA: .1, brown: true, specks: 900, chips: true },
+  watercolor: { mottle: .035, grain: .015, tooth: .2, toothP: 22, fib: 500, fibL: [4, 16], fibA: .04 },
+  newsprint: { mottle: .04, grain: .03, tooth: .02, toothP: 90, fib: 3200, fibL: [3, 14], fibA: .09, specks: 500 },
+  recycled: { mottle: .05, grain: .03, tooth: .03, toothP: 70, fib: 1500, fibL: [4, 20], fibA: .07, specks: 700, color: true },
+  linen: { mottle: .025, grain: .015, tooth: 0, fib: 300, fibL: [4, 12], fibA: .04, weave: true },
+  crumpled: { mottle: .03, grain: .02, tooth: .025, toothP: 90, fib: 800, fibL: [5, 20], fibA: .05 },
+  lines: { mottle: .022, grain: .018, tooth: .02, toothP: 90, fib: 500, fibL: [5, 18], fibA: .04 },
+  grid: { mottle: .022, grain: .018, tooth: .02, toothP: 90, fib: 500, fibL: [5, 18], fibA: .04 } };
+const tileCache = new Map();
+function paperTile(kind) {
+  if (tileCache.has(kind)) return tileCache.get(kind);
+  const K = PAPER_KINDS[kind], N = TILE, c = mk(N, N), x = c.getContext('2d'), id = x.createImageData(N, N), d = id.data, sd = kind.length * 97 + 11, r = seeded(sd);
+  const hgt = new Float32Array(N * N);
+  for (let y = 0; y < N; y++) for (let xx = 0; xx < N; xx++) {
+    const u = xx / N, v = y / N; let hv = 0;
+    if (K.weave) { // Leinen: Kett- und Schussfäden mit unregelmäßiger Dicke
+      const tx = xx / 6.4, ty = y / 6.4, cx = Math.floor(tx), cy = Math.floor(ty), slubX = pnoise(cx * .37, v * 18, sd + 3, 64) - .5, slubY = pnoise(u * 18, cy * .37, sd + 5, 64) - .5;
+      const wx = Math.sin((tx - cx) * Math.PI) * (1 + slubX * .8), wy = Math.sin((ty - cy) * Math.PI) * (1 + slubY * .8), over = (cx + cy) % 2 ? wx : wy;
+      hv = over * .9 + Math.max(wx, wy) * .3;
+    } else hv = K.tooth ? pfbm(u * K.toothP, v * K.toothP, sd + 7, K.toothP, 3) : 0;
+    hgt[y * N + xx] = hv;
+  }
+  for (let y = 0; y < N; y++) for (let xx = 0; xx < N; xx++) {
+    const i = y * N + xx, u = xx / N, v = y / N, l = hgt[y * N + (xx + N - 1) % N], t = hgt[((y + N - 1) % N) * N + xx];
+    let val = 0;
+    if (K.tooth || K.weave) val += ((hgt[i] - l) + (hgt[i] - t)) * (K.weave ? .12 : K.tooth * 4.5); // Relief, Licht oben links
+    val += (pfbm(u * 10, v * 10, sd + 13, 10, 4) - .5) * K.mottle * 1.4; // feine Wolkigkeit
+    val += (ph(xx, y, sd + 17) - .5) * K.grain * 2;
+    const j = i * 4; d[j] = d[j + 1] = d[j + 2] = val > 0 ? 255 : 0; d[j + 3] = Math.min(255, Math.abs(val) * 255);
   }
   x.putImageData(id, 0, 0);
-  if (kind === 'kraft' || kind === 'cardboard') { x.lineWidth = 1; for (let k = 0; k < w * h / 1500; k++) { const px = r() * w, py = r() * h, a = r() * Math.PI, L = 4 + r() * 16; x.strokeStyle = `rgba(${r() < .5 ? '60,40,20' : '255,250,235'},${.12 + r() * .18})`; x.beginPath(); x.moveTo(px, py); x.lineTo(px + Math.cos(a) * L, py + Math.sin(a) * L); x.stroke(); } }
-  texCache.set(key, c); if (texCache.size > 8) texCache.delete(texCache.keys().next().value);
+  // Fasern: kurze, leicht gebogene Linien, hell und dunkel, nahtlos über den Kachelrand
+  const fibCol = () => K.color && r() < .25 ? [['70,110,190', '190,70,80', '90,150,90'][Math.floor(r() * 3)], .35] : K.brown ? (r() < .55 ? ['75,50,25', 1] : ['255,248,230', 1]) : (r() < .5 ? ['60,55,45', 1] : ['255,255,255', 1.3]);
+  for (let k = 0; k < K.fib; k++) {
+    const px = r() * N, py = r() * N, a = r() * Math.PI * 2, L = K.fibL[0] + r() * (K.fibL[1] - K.fibL[0]), bend = (r() - .5) * L * .5, [col, m] = fibCol();
+    x.strokeStyle = `rgba(${col},${(K.fibA * (.4 + r() * .8) * m).toFixed(3)})`; x.lineWidth = .5 + r() * .9;
+    for (const ox of [0, -N, N]) for (const oy of [0, -N, N]) { const sx = px + ox, sy = py + oy; if (sx < -40 || sx > N + 40 || sy < -40 || sy > N + 40) continue;
+      x.beginPath(); x.moveTo(sx, sy); x.quadraticCurveTo(sx + Math.cos(a) * L / 2 - Math.sin(a) * bend, sy + Math.sin(a) * L / 2 + Math.cos(a) * bend, sx + Math.cos(a) * L, sy + Math.sin(a) * L); x.stroke(); }
+  }
+  // Einschlüsse / Flecken (Kraft, Pappe, Recycling, Zeitung)
+  for (let k = 0; k < (K.specks || 0); k++) { const px = r() * N, py = r() * N, sz = .5 + r() * r() * (K.chips ? 3.5 : 2);
+    x.fillStyle = K.color && r() < .3 ? `rgba(${['60,90,170', '170,60,70', '80,130,80'][Math.floor(r() * 3)]},.35)` : `rgba(${K.brown ? '50,32,15' : '40,40,40'},${(.12 + r() * .3).toFixed(2)})`;
+    x.beginPath(); x.ellipse(px, py, sz, sz * (.5 + r() * .5), r() * 3, 0, Math.PI * 2); x.fill(); }
+  tileCache.set(kind, c); return c;
+}
+/* große, nicht kachelnde Wolkigkeit + Knitterfacetten – niedrige Auflösung, weich hochskaliert */
+const bigCache = new Map();
+function paperLarge(kind, T, H) {
+  const key = kind + T + 'x' + H; if (bigCache.has(key)) return bigCache.get(key);
+  const crumple = kind === 'crumpled', f = crumple ? 3 : 12, w = Math.max(2, Math.round(T / f)), h = Math.max(2, Math.round(H / f)), c = mk(w, h), x = c.getContext('2d'), id = x.createImageData(w, h), d = id.data, sd = kind.length * 13 + 5;
+  const K = PAPER_KINDS[kind] || PAPER_KINDS.paper;
+  let hf = null;
+  if (crumple) { // Worley-Höhenfeld: Mulden mit scharfen Graten an den Zellgrenzen = Knicke; zwei Größen + feine Falten
+    const r = seeded(sd), layers = [[Math.max(30, Math.round(w * h / 3800)), 1], [Math.max(80, Math.round(w * h / 900)), .3]];
+    hf = new Float32Array(w * h);
+    for (const [n, amp] of layers) {
+      const cs = Math.sqrt(w * h / n), gw = Math.ceil(w / cs) + 1, gh = Math.ceil(h / cs) + 1, grid = Array.from({ length: gw * gh }, () => []);
+      for (let k = 0; k < n; k++) { const px = r() * w, py = r() * h; grid[Math.floor(py / cs) * gw + Math.floor(px / cs)].push([px, py, .6 + r() * .8]); }
+      for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++) { const gx = Math.floor(xx / cs), gy = Math.floor(y / cs); let b1 = 1e9, s1 = 1;
+        for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) { const cx = gx + ox, cy = gy + oy; if (cx < 0 || cy < 0 || cx >= gw || cy >= gh) continue;
+          for (const sp of grid[cy * gw + cx]) { const dd = (sp[0] - xx) ** 2 + (sp[1] - y) ** 2; if (dd < b1) { b1 = dd; s1 = sp[2]; } } }
+        hf[y * w + xx] += Math.sqrt(b1) / cs * amp * s1; }
+    }
+    for (let i = 0; i < hf.length; i++) hf[i] += (pfbm((i % w) / w * 8, Math.floor(i / w) / h * 8 * h / w, sd + 9, 1e6, 3) - .5) * .25;
+    for (let pass = 0; pass < 2; pass++) { const t = new Float32Array(hf.length); // leicht weichzeichnen: Grate bleiben, Treppen verschwinden
+      for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++) { let sum = 0, n = 0; for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) { const X = xx + ox, Y = y + oy; if (X >= 0 && Y >= 0 && X < w && Y < h) { sum += hf[Y * w + X]; n++; } } t[y * w + xx] = sum / n; }
+      hf = t; }
+  }
+  const L = [-.55, -.65, .52];
+  for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++) {
+    let val = (pfbm(xx / w * 3 * (T / H), y / h * 3, sd, 1e6, 4) - .5) * K.mottle * 2.2;
+    if (crumple) { const i = y * w + xx, gx = (hf[i + (xx < w - 1 ? 1 : 0)] - hf[i - (xx > 0 ? 1 : 0)]) * 6, gy = (hf[i + (y < h - 1 ? w : 0)] - hf[i - (y > 0 ? w : 0)]) * 6, nn = Math.hypot(gx, gy, 1);
+      val += ((-gx * L[0] - gy * L[1] + L[2]) / nn - L[2]) * .3; }
+    const j = (y * w + xx) * 4; d[j] = d[j + 1] = d[j + 2] = val > 0 ? 255 : 0; d[j + 3] = Math.min(255, Math.abs(val) * 255);
+  }
+  x.putImageData(id, 0, 0);
+  bigCache.set(key, c); if (bigCache.size > 6) bigCache.delete(bigCache.keys().next().value);
   return c;
 }
+function drawPaper(c, kind, T, H) {
+  c.save(); c.imageSmoothingQuality = 'high'; c.drawImage(paperLarge(kind, T, H), 0, 0, T, H);
+  c.fillStyle = c.createPattern(paperTile(kind), 'repeat'); c.fillRect(0, 0, T, H); c.restore();
+}
+const TEXTURES = new Set(Object.keys(PAPER_KINDS));
 const lumHex = hex => { const n = parseInt(hex.slice(1), 16); return (.2126 * (n >> 16 & 255) + .7152 * (n >> 8 & 255) + .0722 * (n & 255)) / 255; };
-export const BG_PATTERNS = [['none', 'Keins'], ['paper', 'Papier'], ['crumpled', 'Knitterpapier'], ['kraft', 'Kraftpapier'], ['cardboard', 'Pappe'], ['linen', 'Leinen'], ['grid', 'Raster'], ['dots', 'Punkte'], ['lines', 'Linien'], ['check', 'Karo'], ['grain', 'Körnung']];
+export const BG_PATTERNS = [['none', 'Keins'], ['paper', 'Papier'], ['watercolor', 'Aquarellpapier'], ['crumpled', 'Knitterpapier'], ['kraft', 'Kraftpapier'], ['cardboard', 'Pappe'], ['recycled', 'Recycling'], ['newsprint', 'Zeitungspapier'], ['linen', 'Leinen'], ['lines', 'Liniert'], ['grid', 'Kariert'], ['dots', 'Punkte'], ['check', 'Karo-Muster'], ['grain', 'Körnung']];
 function drawBg(c, T, H) {
   const bg = state.bg;
   if (bg.grad) { const g = bg.dir === 'v' ? c.createLinearGradient(0, 0, 0, H) : bg.dir === 'd' ? c.createLinearGradient(0, 0, T, H) : c.createLinearGradient(0, 0, T, 0); g.addColorStop(0, bg.c1); g.addColorStop(1, bg.c2); c.fillStyle = g; }
@@ -155,11 +214,11 @@ function drawBg(c, T, H) {
   const pat = bg.pattern || 'none'; if (pat === 'none') return;
   const dark = lumHex(bg.c1) < .45, ink = dark ? 'rgba(255,255,255,.16)' : 'rgba(0,0,0,.11)';
   c.save();
-  if (pat === 'paper') { c.fillStyle = c.createPattern(paper(), 'repeat'); c.fillRect(0, 0, T, H); }
-  else if (TEXTURES.has(pat)) c.drawImage(texture(pat, T, H), 0, 0, T, H);
+  if (TEXTURES.has(pat)) drawPaper(c, pat, T, H);
   else if (pat === 'grain') { const r = seeded(3); c.fillStyle = ink; for (let i = 0; i < T * H / 900; i++) c.fillRect(r() * T, r() * H, 2, 2); }
-  else if (pat === 'grid') { c.strokeStyle = ink; c.lineWidth = 2; c.beginPath(); for (let x = 54; x < T; x += 54) { c.moveTo(x, 0); c.lineTo(x, H); } for (let y = 54; y < H; y += 54) { c.moveTo(0, y); c.lineTo(T, y); } c.stroke(); }
-  else if (pat === 'lines') { c.strokeStyle = ink; c.lineWidth = 2; c.beginPath(); for (let y = 90; y < H; y += 60) { c.moveTo(0, y); c.lineTo(T, y); } c.stroke(); }
+  if (pat === 'grid') { c.strokeStyle = dark ? 'rgba(255,255,255,.14)' : 'rgba(70,110,170,.26)'; c.lineWidth = 1.6; c.beginPath(); for (let x = 46; x < T; x += 46) { c.moveTo(x, 0); c.lineTo(x, H); } for (let y = 46; y < H; y += 46) { c.moveTo(0, y); c.lineTo(T, y); } c.stroke(); }
+  else if (pat === 'lines') { c.strokeStyle = dark ? 'rgba(255,255,255,.14)' : 'rgba(70,110,170,.3)'; c.lineWidth = 1.8; c.beginPath(); for (let y = 130; y < H; y += 56) { c.moveTo(0, y); c.lineTo(T, y); } c.stroke();
+    c.strokeStyle = 'rgba(214,80,90,.42)'; c.lineWidth = 2; c.beginPath(); for (let i = 0; i < T / 1080; i++) { c.moveTo(i * 1080 + 120, 0); c.lineTo(i * 1080 + 120, H); } c.stroke(); }
   else if (pat === 'dots') { c.fillStyle = ink; for (let y = 30; y < H; y += 48) for (let x = 30; x < T; x += 48) { c.beginPath(); c.arc(x, y, 4, 0, Math.PI * 2); c.fill(); } }
   else if (pat === 'check') { c.fillStyle = dark ? 'rgba(255,255,255,.07)' : 'rgba(0,0,0,.06)'; for (let x = 0; x < T; x += 120) c.fillRect(x, 0, 60, H); for (let y = 0; y < H; y += 120) c.fillRect(0, y, T, 60); }
   c.restore();
