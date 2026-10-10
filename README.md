@@ -1,8 +1,27 @@
 # Streifzug
 
-Web-App für nahtlose Instagram-Karussells: Fotos über mehrere Slides legen, bearbeiten (Looks, Licht, Farbe, Kurven, Effekte), Text hinzufügen und als einzelne JPEGs (1080 px breit) exportieren. Alles läuft im Browser – keine Fotos verlassen das Gerät.
+Foto-Web-App fürs iPhone (und jeden Browser), die vier Apps in einer vereint – ohne App Store, ohne Konto, ohne Upload. Alles läuft lokal im Browser.
 
-Die komplette App steckt in `public/index.html`, ohne Build-Schritt.
+| Vorbild | In Streifzug |
+|---|---|
+| **SCRL** | Fotos laufen nahtlos über bis zu 20 Slides · 19 Vorlagen (Panorama, Raster, Mosaik, Filmstreifen, Album, Magazin …) · Formen, Sticker, Emoji · 12 Schriften, Text-Stile mit Kontur, Neon, Zeilenband · Hintergrund-Verläufe und Muster · Ebenenliste mit Sperren/Ausblenden · Mischmodi (Doppelbelichtung) · Slides einfügen, löschen, verschieben · Instagram-Vorschau |
+| **Snapseed** | Feinabstimmung, Auto-Korrektur, Details (Struktur, Schärfen), Zuschnitt mit Gesten, Begradigen, Perspektive · Selektiv (Kontrollpunkte) · Pinsel (Abwedeln, Nachbelichten, Sättigung, Wärme) · Reparieren · Objektivunschärfe (Tilt-Shift / rund) · Glamour Glow, HDR, Drama, Noir |
+| **Lightroom** | Belichtung, Lichter, Tiefen, Weiß, Schwarz mit Histogramm · Temperatur/Tönung mit Pipette · Farbmischer (HSL) · Color Grading · Gradationskurven (RGB + Kanäle) · Klarheit, Textur, Dunst entfernen, Rauschreduzierung · Radial- und Verlaufsmasken · eigene Presets inkl. Export/Import · Bearbeitung kopieren/einfügen/auf alle |
+| **WayShot** | 29 Looks (Digicam, CCD, Wegwerfkamera, Camcorder, Kunstlicht 800, Abgelaufen, Lomo, Sepia …) · Datumsstempel mit Datum, Format, Farbe, Position · Lichteinfall, Staub & Kratzer, Halation, Low-Res, Farbsäume · Rahmen: Sofortbild, Instax, Kleinbild, Dia |
+
+Außerdem: Projekte werden automatisch im Browser gespeichert (IndexedDB), die App lässt sich über „Teilen → Zum Home-Bildschirm“ wie eine echte App installieren und funktioniert danach auch offline. Export als JPEG oder PNG (1080 px breit), optional zusätzlich als Panorama; auf dem iPhone landen alle Slides mit einem Tipp in den Fotos.
+
+## Aufbau
+
+Kein Build-Schritt – reine ES-Module in `public/`:
+
+- `js/core.js` – Zustand, Konstanten, Looks, Schriften
+- `js/process.js` – Bildverarbeitung (Tonwerte, lokaler Kontrast, Masken, Pinsel, Reparatur, Perspektive, Effekte)
+- `js/scene.js` – Zeichnen der Leinwand: Fotos, Rahmen, Text, Formen, Hintergrund
+- `js/templates.js` – Vorlagen
+- `js/store.js` – Projekte speichern
+- `js/main.js` – Oberfläche, Gesten, Werkzeuge, Export
+- `sw.js`, `manifest.webmanifest`, `icons/` – Home-Bildschirm & offline
 
 ## Lokal ansehen
 
@@ -17,5 +36,3 @@ npx serve public
 **Variante B – Pages:** *Workers & Pages → Create → Pages → Connect to Git* → Repo wählen, Framework „None“, Build-Befehl leer, Ausgabeverzeichnis `public`.
 
 Jeder Push auf `main` wird danach automatisch veröffentlicht.
-
-Manuell von der Kommandozeile: `npx wrangler deploy`.

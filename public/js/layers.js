@@ -1,0 +1,27 @@
+/* Ebenen anlegen und platzieren */
+import { state, sources, dims, newId, defParams } from './core.js';
+import { cropAspect } from './scene.js';
+
+export function newImageLayer(srcId, x = 0, y = 0, w = 100) {
+  const src = sources.get(srcId);
+  return { id: newId(), type: 'image', srcId, x, y, w, rot: 0, opacity: 1, blend: 'source-over', rot90: 0, flip: false,
+    crop: { ratio: 'orig', zoom: 1, px: .5, py: .5 }, shape: 'rect', radius: 7, border: 0, borderColor: '#ffffff', shadow: false, caption: '',
+    params: defParams(), stampMs: src ? src.date : Date.now() };
+}
+export function newTextLayer(x, y, text = 'Dein Text') {
+  return { id: newId(), type: 'text', x, y, text, font: 'Caveat', size: 110, color: '#ffffff', align: 'center', bg: 'none', bgColor: '#111111', rot: 0, opacity: 1, blend: 'source-over',
+    shadow: true, spacing: 0, lineH: 1.16, stroke: 0, strokeColor: '#111111', upper: false, glow: false };
+}
+const SHAPE_DEF = { line: [600, 14], arrow: [420, 150], tape: [300, 80], frame: [700, 860], heart: [300, 270], star: [300, 290], sparkle: [220, 220] };
+export function newShapeLayer(kind, x, y) {
+  const [w, h] = SHAPE_DEF[kind] || [420, 420];
+  return { id: newId(), type: 'shape', kind, x, y, w, h, rot: 0, opacity: 1, blend: 'source-over', fill: kind === 'tape' ? '#f3e2b3' : kind === 'frame' ? '#ffffff' : '#f2c14e',
+    outline: false, sw: 12, radius: 18, shadow: false };
+}
+export function coverSlide(l, i) {
+  const { W, H } = dims(), a = cropAspect(l);
+  l.w = Math.max(W, H * a); l.x = (i + .5) * W; l.y = H / 2; l.rot = 0;
+}
+export function coverAll(l) { const { W, H } = dims(), T = W * state.slides, a = cropAspect(l); l.w = Math.max(T, H * a); l.x = T / 2; l.y = H / 2; l.rot = 0; }
+/* Foto exakt in ein Rechteck einpassen (Zuschnitt passend) */
+export function fitRect(l, x0, y0, w, h) { l.crop.ratio = w / h; l.w = w; l.x = x0 + w / 2; l.y = y0 + h / 2; l.rot = 0; }
