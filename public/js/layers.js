@@ -12,12 +12,13 @@ export function newTextLayer(x, y, text = 'Dein Text') {
   return { id: newId(), type: 'text', x, y, text, font: 'Caveat', size: 110, color: '#ffffff', align: 'center', bg: 'none', bgColor: '#111111', rot: 0, opacity: 1, blend: 'source-over',
     shadow: true, spacing: 0, lineH: 1.16, stroke: 0, strokeColor: '#111111', upper: false, glow: false };
 }
-const SHAPE_DEF = { line: [600, 14], arrow: [420, 150], tape: [300, 80], frame: [700, 860], heart: [300, 270], star: [300, 290], sparkle: [220, 220], paper: [600, 420], spiral: [1040, 90], clip: [70, 170], binder: [110, 95], laurel: [220, 200], scribble: [700, 860], corners: [700, 860], scribbleArrow: [260, 140], lace: [180, 1200], starSticker: [120, 115], leaves: [900, 1100], check: [60, 60] };
+const SHAPE_DEF = { line: [600, 14], arrow: [420, 150], tape: [300, 80], frame: [700, 860], heart: [300, 270], star: [300, 290], sparkle: [220, 220], paper: [600, 420], spiral: [1040, 90], clip: [70, 170], binder: [130, 160], laurel: [220, 200], scribble: [700, 860], corners: [700, 860], scribbleArrow: [260, 140], lace: [180, 1200], starSticker: [120, 115], leaves: [900, 1100], check: [60, 60] };
 const SHAPE_FILL = { tape: '#f3e2b3', frame: '#ffffff', paper: '#fbfaf6', clip: '#9aa0a6', binder: '#1c1c1c', laurel: '#ffffff', scribble: '#1d1d1d', corners: '#1d1d1d', scribbleArrow: '#1d1d1d', lace: '#fbfaf6', check: '#3b82f6' };
+const DOODLE_DEF = { dUnderline: [520, 130], dHighlight: [520, 110], dLoops: [520, 170], dPlane: [420, 300], dFlourish: [480, 200], dArrowCurve: [420, 260], dArrowDown: [150, 300], dExclaim: [160, 260], dCloud: [380, 260], dBolt: [200, 320], dHearts: [300, 280] };
 export function newShapeLayer(kind, x, y) {
-  const [w, h] = SHAPE_DEF[kind] || [420, 420];
-  return { id: newId(), type: 'shape', kind, x, y, w, h, rot: 0, opacity: 1, blend: 'source-over', fill: SHAPE_FILL[kind] || '#f2c14e',
-    outline: false, sw: /^(scribble|corners|scribbleArrow)$/.test(kind) ? 5 : 12, radius: 18, shadow: false };
+  const [w, h] = SHAPE_DEF[kind] || DOODLE_DEF[kind] || [420, 420];
+  return { id: newId(), type: 'shape', kind, x, y, w, h, rot: 0, opacity: 1, blend: 'source-over', fill: SHAPE_FILL[kind] || (kind === 'dHighlight' ? '#ffe066' : /^d[A-Z]/.test(kind) ? '#1d1d1d' : '#f2c14e'),
+    outline: false, sw: /^(scribble|corners|scribbleArrow)$/.test(kind) ? 5 : /^d[A-Z]/.test(kind) ? 7 : 12, radius: 18, shadow: false };
 }
 export function coverSlide(l, i) {
   const { W, H } = dims(), a = cropAspect(l);

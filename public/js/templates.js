@@ -105,10 +105,22 @@ function attach(s, r, dc, only) {
   const cx = s.x + s.w / 2, cy = s.y + s.h / 2, rot = s.rot || 0, P = (fx, fy) => rotPt(cx, cy, s.x + fx * s.w, s.y + fy * s.h, rot);
   const t = only ?? Math.floor(r() * 5), sc = Math.max(.75, Math.min(1.1, Math.min(s.w, s.h) * 1.9)), tp = TAPES[Math.floor(r() * TAPES.length)];
   if (t === 0) { const [x, y] = P(.15 + r() * .25, 0); dc.push(SH('clip', x, y + .045 * sc, .066 * sc, .17 * sc, { rot: rot - 5 + r() * 10 })); }
-  else if (t === 1) { const [x, y] = P(.5, 0); dc.push(SH('binder', x, y + .004 * sc, .16 * sc, .13 * sc, { rot })); }
+  else if (t === 1) { const [x, y] = P(.5, 0); dc.push(SH('binder', x, y + .055 * sc, .13 * sc, .16 * sc, { rot })); }
   else if (t === 2) { const [x1, y1] = P(0, 0), [x2, y2] = P(1, 0); dc.push(SH('tape', x1, y1, .2 * sc, .055 * sc, { rot: rot - 40 + r() * 8, fill: tp }), SH('tape', x2, y2, .2 * sc, .055 * sc, { rot: rot + 40 - r() * 8, fill: tp })); }
   else if (t === 3) { const [x, y] = P(.5, 0); dc.push(SH('tape', x, y, .24 * sc, .06 * sc, { rot: rot + (r() - .5) * 10, fill: tp })); }
   else { const [x1, y1] = P(0, 0), [x2, y2] = P(1, 1); dc.push(SH('tape', x1, y1, .18 * sc, .05 * sc, { rot: rot - 45, fill: tp }), SH('tape', x2, y2, .18 * sc, .05 * sc, { rot: rot - 45, fill: tp })); }
+}
+/* Kritzeleien in freie Flächen einer Seite streuen (überlappen weder Fotos noch einander) */
+const DOOD = ['dHeart', 'dHearts', 'dStar', 'dSparkles', 'dSwirl', 'dArrowCurve', 'dArrowDown', 'dSun', 'dCloud', 'dFlower', 'dSmile', 'dCrown', 'dBolt', 'dMusic', 'dExclaim', 'dBurst', 'dPlane', 'dLoops', 'dDots', 'dFlourish', 'dTick'];
+const DOOD_AR = { dLoops: .32, dFlourish: .42, dArrowCurve: .62, dArrowDown: 2, dExclaim: 1.6, dCloud: .68, dBolt: 1.6, dHearts: .9, dPlane: .72 };
+function doodles(i, A, page, r, dc, cnt, ink = '#1d1d1d', avoid = true, kinds = DOOD) {
+  const boxes = avoid ? page.map(s => [s.x - .015, s.y - .015, s.x + s.w + .015, s.y + s.h + .015]) : [];
+  for (let k = 0, tries = 0; k < cnt && tries < 60; tries++) {
+    const kind = kinds[Math.floor(r() * kinds.length)], ar = DOOD_AR[kind] || 1, w = .1 + r() * .09, h = w * ar, cx = i + w / 2 + .03 + r() * (.94 - w), cy = h / 2 + .03 + r() * (A - h - .06);
+    const b = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2];
+    if (boxes.some(q => b[0] < q[2] && b[2] > q[0] && b[1] < q[3] && b[3] > q[1])) continue;
+    boxes.push(b); dc.push(SH(kind, cx, cy, w, h, { fill: ink, rot: Math.round((r() - .5) * 300) / 10, sw: 5 + Math.round(r() * 3) })); k++;
+  }
 }
 /* Allgemeine Abwechslung: einzelne Slides zufällig spiegeln (nur Felder, die ganz auf der Slide liegen) */
 export function vary(L, n, o, T) {
@@ -431,6 +443,7 @@ export const TEMPLATES = [
           if (k === 'nbLow') dc.push(SH('spiral', i + .5, A * .47, .96, .09, {}), TX('n' + i, i + .5, A * .23, W[i % W.length], T));
           else if (k === 'nbHigh') dc.push(SH('spiral', i + .5, A * .53, .96, .09, {}), TX('n' + i, i + .5, A * .8, W[i % W.length], T));
           else dc.push(SH('spiral', i + .5, .06, .96, .09, {}), TX('n' + i, i + .5, A - .075, W[i % W.length], T));
+          doodles(i, A, [...page, S(i, 0, 1, .12), S(i + .3, A - .12, .4, .12)], r, dc, 1 + Math.floor(r() * 2), '#3a3226');
         } });
       return { slots: F.slots, deco: F.deco, bg: [{ c1: '#e6dccd', pattern: 'paper' }, { c1: '#fbfaf6', pattern: 'lines' }, { c1: '#fbfaf6', pattern: 'grid' }][o.v] };
     } },
@@ -464,6 +477,7 @@ export const TEMPLATES = [
         page.forEach(sl => { const cx = sl.x + sl.w / 2, cy = sl.y + sl.h / 2, t = (o.v === 2 ? .5 : 0) + r();
           if (t < .55) dc.push(SH('scribble', cx, cy, sl.w + .04, sl.h + .04, { ...K, rot: sl.rot || 0 })); else if (t < 1.1) dc.push(SH('corners', cx, cy, sl.w + .08, sl.h + .08, { ...K, rot: sl.rot || 0 })); });
         if (o.v === 1 || r() < .55) dc.push(SH('scribbleArrow', i + .8, .1, .18, .09, { ...K, rot: 12 }), TX('a' + i, i + .45, .085, CAP[i % CAP.length], { font: 'Caveat', size: .045, color: '#1d1d1d', rot: -4 }));
+        doodles(i, A, [...page, S(i + .2, 0, .8, .16)], r, dc, 2 + Math.floor(r() * 3));
       } });
       return { slots: F.slots, deco: F.deco, bg: { c1: '#fbfaf8' } };
     } },
@@ -473,9 +487,33 @@ export const TEMPLATES = [
       const F = flow(n, A, o, { kinds: startAt(K_GRID.filter(k => k !== 'one'), 'five'), g: o.g, ins: [.06, .06, .06, o.v ? .2 : .06], salt: 17, deco: (i, page, r, dc) => {
         for (let k = 0; k < 2; k++) { const sl = page[Math.floor(r() * page.length)]; dc.push(SH('sparkle', sl.x + (r() < .5 ? 0 : sl.w), sl.y + (r() < .5 ? 0 : sl.h), .05, .05, { outline: true, fill: '#1d1d1d', sw: 3 })); }
         if (r() < .6) { const sl = page[page.length - 1]; dc.push(SH('scribbleArrow', sl.x + sl.w * .3, sl.y - .03, .16, .08, { fill: '#1d1d1d', rot: r() * 40 - 20 })); }
+        for (let k = 0; k < 2; k++) { const sl = page[Math.floor(r() * page.length)], kd = ['dHeart', 'dStar', 'dSparkles', 'dSmile', 'dSun', 'dBurst', 'dFlower'][Math.floor(r() * 7)]; dc.push(SH(kd, sl.x + sl.w * (.2 + r() * .6), sl.y + sl.h * (.2 + r() * .6), .12, .12, { fill: '#ffffff', rot: (r() - .5) * 30, sw: 6 })); }
         if (o.v) dc.push(TX('q' + i, i + .5, A - .1, Q[i % Q.length].replace('\n', ' '), { font: 'Caveat', size: .05, color: '#1d1d1d', rot: -3 }));
       } });
       return { slots: F.slots, deco: F.deco, bg: { c1: '#ffffff' } };
+    } },
+
+  { id: 'doodleDiary', flow: true, cat: 'doodle', name: 'Kritzel-Tagebuch', desc: 'Abzüge mit Washi-Tape, rundherum Herzchen, Sterne, Pfeile und Notizen.', vars: ['Papier', 'Kariert', 'Kraftpapier'],
+    build(n, A, o) {
+      const NOTES = ['bester Tag!', 'nochmal ♡', 'Sommer 26', 'wir zwei', 'so schön', 'hihi', 'Lieblingsort', 'mehr davon', 'never forget', 'zu Hause'], ink = o.v === 2 ? '#2a2117' : '#1d1d1d';
+      const F = flow(n, A, o, { kinds: K_OBJ, g: .11, ins: [.13, .15, .13, .17], rot: 5, salt: 57, slot: () => ({ border: .018, borderColor: '#fbfaf6', shadow: true }), deco: (i, page, r, dc) => {
+        page.forEach(sl => attach(sl, r, dc, 2 + Math.floor(r() * 3)));
+        const t = page[Math.floor(r() * page.length)], below = t.y + t.h + .07 < A - .02;
+        const nx = Math.min(i + .8, Math.max(i + .2, t.x + t.w * (.3 + r() * .4))), ny = below ? t.y + t.h + .07 : Math.max(.06, t.y - .07);
+        dc.push(TX('dn' + i, nx, ny, NOTES[i % NOTES.length], { font: r() < .5 ? 'Caveat' : 'Permanent Marker', size: .045, color: ink, rot: (r() - .5) * 10 }));
+        doodles(i, A, [...page, S(nx - .2, ny - .05, .4, .1)], r, dc, 4 + Math.floor(r() * 3), ink);
+      } });
+      return { slots: F.slots, deco: F.deco, bg: [{ c1: '#f6f1e7', pattern: 'paper' }, { c1: '#fbfbf8', pattern: 'grid' }, { c1: '#c8a97e', pattern: 'kraft' }][o.v] };
+    } },
+  { id: 'doodleOverlay', flow: true, cat: 'doodle', name: 'Gekritzelt aufs Foto', desc: 'Randlose Fotos, darauf weiße Filzstift-Kritzeleien und Handschrift.', vars: ['Weiß', 'Gelb', 'Schwarz'],
+    build(n, A, o) {
+      const ink = ['#ffffff', '#ffe066', '#1d1d1d'][o.v], W = ['so happy', 'omg', 'wir!', 'Lieblingsmensch', 'yes!', 'Urlaub', 'mood', 'lol', 'ciao', 'hallo Meer'];
+      const F = flow(n, A, o, { kinds: K_BLEED, g: .01, ins: 0, salt: 58, slot: (i, j, c, r, k) => (k === 'inset' || k === 'pipc') && j ? { border: .012, borderColor: '#ffffff', shadow: true } : {}, deco: (i, page, r, dc) => {
+        doodles(i, A, [], r, dc, 3 + Math.floor(r() * 3), ink, false);
+        dc.push(TX('w' + i, i + .25 + r() * .5, A * (.12 + r() * .76), W[i % W.length], { font: r() < .5 ? 'Caveat' : 'Permanent Marker', size: .06, color: ink, rot: (r() - .5) * 16 }));
+        if (r() < .5) { const sl = page[Math.floor(r() * page.length)]; dc.push(SH('dCircle', sl.x + sl.w * (.3 + r() * .4), sl.y + sl.h * (.3 + r() * .4), .26, .2, { fill: ink, sw: 6 })); }
+      } });
+      return { slots: F.slots, deco: F.deco, bg: { c1: '#111111' } };
     } },
 
   /* ---------- weitere Raster & Editorial ---------- */

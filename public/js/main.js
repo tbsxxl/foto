@@ -4,6 +4,7 @@ import { $, clamp, clone, de, esc, state, ui, sources, cache, ids, newId, dims, 
 import { mk, makeAux, processImage, prepare, curveFn, pickHealSource, wbFromPoint, LEAKS } from './process.js';
 import { flags, getCut, hasCut, loadScaled, orientCanvas, cropAspect, cropRect, boxOf, drawScene, ensureCache, releaseAux, cacheKey, drawSample, SHAPES, BG_PATTERNS, FRAMES } from './scene.js';
 import { newImageLayer, newTextLayer, newShapeLayer, coverSlide, coverAll, computeBox } from './layers.js';
+import { isDoodle, doodleSVG } from './props.js';
 import { TEMPLATES, TPL_CATS, tplSVG, tplDef, applyTemplate, layout, relink, shufflePhotos, releaseTemplate } from './templates.js';
 import * as store from './store.js';
 
@@ -537,11 +538,14 @@ function panelLayers() {
 }
 const EMOJI = ['☀️', '🌊', '❤️', '✨', '📍', '🌸', '🍂', '⭐', '🌙', '📷', '🎞️', '🍦', '🐚', '⛵', '🌿', '🔥', '🦋', '🌈', '💌', '🎉'];
 function panelElements() {
-  return `${group('Formen & Sticker', `<div class="el-grid">${SHAPES.map(([k, lb]) => `<button class="el" data-addshape="${k}"><svg viewBox="0 0 40 40" aria-hidden="true">${shapeIcon(k)}</svg><span>${lb}</span></button>`).join('')}</div>`)}
+  const el = ([k, lb]) => `<button class="el" data-addshape="${k}"><svg viewBox="0 0 40 40" aria-hidden="true">${shapeIcon(k)}</svg><span>${lb}</span></button>`;
+  return `${group('Kritzeleien', `<div class="el-grid">${SHAPES.filter(([k]) => isDoodle(k)).map(el).join('')}</div>`)}
+  ${group('Formen & Sticker', `<div class="el-grid">${SHAPES.filter(([k]) => !isDoodle(k)).map(el).join('')}</div>`)}
   ${group('Emoji', `<div class="emoji-row">${EMOJI.map(e => `<button class="emo" data-emoji="${e}">${e}</button>`).join('')}</div>`)}
   ${group('Text-Vorlagen', `<div class="chips">${TEXT_PRESETS.map(([k, lb]) => chip(`data-addtext="${k}"`, lb, false)).join('')}</div>`)}`;
 }
 function shapeIcon(k) {
+  if (isDoodle(k)) return doodleSVG(k);
   const f = 'fill="var(--accent)"';
   return { rect: `<rect x="6" y="9" width="28" height="22" ${f}/>`, round: `<rect x="6" y="9" width="28" height="22" rx="6" ${f}/>`, circle: `<circle cx="20" cy="20" r="13" ${f}/>`,
     frame: `<rect x="8" y="6" width="24" height="28" fill="none" stroke="var(--accent)" stroke-width="3"/>`, line: `<path d="M6 20h28" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/>`,
@@ -697,7 +701,7 @@ function panelTextStyle(l) {
   + toggle('upper', 'Großbuchstaben', l.upper) + toggle('glow', 'Leuchten (Neon)', l.glow) + (l.bg === 'none' ? toggle('tshadow', 'Schatten für Lesbarkeit', l.shadow) : '');
 }
 function panelShape(l) {
-  const canOutline = !['line', 'arrow', 'tape', 'frame', 'paper', 'lace', 'starSticker', 'leaves', 'check', 'spiral', 'clip', 'binder', 'laurel', 'scribble', 'corners', 'scribbleArrow'].includes(l.kind);
+  const canOutline = !['line', 'arrow', 'tape', 'frame', 'paper', 'lace', 'starSticker', 'leaves', 'check', 'spiral', 'clip', 'binder', 'laurel', 'scribble', 'corners', 'scribbleArrow'].includes(l.kind) && !isDoodle(l.kind);
   return group('Form', `<div class="chips">${SHAPES.map(([k, lb]) => chip(`data-skind="${k}"`, lb, l.kind === k)).join('')}</div>`)
     + group('Farbe', swatches('fill', TEXT_COLORS.concat(['#f3e2b3']), l.fill))
     + group('', slider('l.w', l.kind === 'line' ? 'Länge' : 'Breite', 20, 3000, 1, 'px') + slider('l.h', l.kind === 'line' ? 'Stärke' : 'Höhe', 2, 3000, 1, 'px')
