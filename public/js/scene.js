@@ -396,12 +396,8 @@ function drawDecoShape(c, l, x, y, w, h, sw) {
       c.lineWidth = Math.max(2, h * .1); c.strokeStyle = '#3c3f44'; c.beginPath(); c.ellipse(cx - step * .05, y + h * .46, step * .2, h * .4, .12, Math.PI * .55, Math.PI * 2.2); c.stroke();
       c.lineWidth = Math.max(1, h * .04); c.strokeStyle = '#d9dde2'; c.beginPath(); c.ellipse(cx - step * .05, y + h * .44, step * .18, h * .38, .12, Math.PI * 1.1, Math.PI * 1.9); c.stroke(); }
     return true; }
-  if (k === 'clip') { c.lineWidth = Math.max(2, w * .1); c.strokeStyle = l.fill; c.beginPath();
-    const P = (u, v) => [x + u * w, y + v * h];
-    c.moveTo(...P(.62, .35)); c.lineTo(...P(.62, .8)); c.ellipse(x + .45 * w, y + .8 * h, .17 * w, .12 * h, 0, 0, Math.PI, false); c.lineTo(...P(.28, .15));
-    c.ellipse(x + .5 * w, y + .15 * h, .22 * w, .12 * h, 0, Math.PI, 0, false); c.lineTo(...P(.72, .7)); c.stroke(); return true; }
-  if (k === 'binder') { c.save(); c.fillStyle = '#1c1c1c'; c.beginPath(); c.moveTo(x + w * .14, y + h * .45); c.lineTo(x + w * .86, y + h * .45); c.lineTo(x + w, y + h); c.lineTo(x, y + h); c.closePath(); c.fill(); c.restore();
-    c.shadowColor = 'transparent'; c.lineWidth = Math.max(2, w * .05); c.strokeStyle = '#c8ccd0'; c.beginPath(); c.moveTo(x + w * .24, y + h * .52); c.lineTo(x + w * .32, y + h * .04); c.lineTo(x + w * .68, y + h * .04); c.lineTo(x + w * .76, y + h * .52); c.stroke(); return true; }
+  if (k === 'clip') { drawClip(c, l, x, y, w, h); return true; }
+  if (k === 'binder') { drawBinder(c, x, y, w, h); return true; }
   if (k === 'laurel') { const R = Math.min(w, h * 1.1) * .46;
     for (const sgn of [-1, 1]) { c.save(); c.scale(sgn, 1); c.lineWidth = Math.max(1.5, R * .03); c.beginPath(); c.arc(0, 0, R, Math.PI * .62, Math.PI * 1.35); c.stroke();
       for (let i = 0; i < 9; i++) { const a = Math.PI * (.66 + i * .075), px = Math.cos(a) * R, py = Math.sin(a) * R;
@@ -416,6 +412,55 @@ function drawDecoShape(c, l, x, y, w, h, sw) {
     wobble(c, [[x + w * .72, y + h * .22], [x + w * .96, y + h * .22], [x + w * .93, y + h * .5]], l.id + 12, sw * .5); return true; }
   return false;
 }
+/* Klebeband: durchscheinend, gerissene Enden, matte Struktur, leichter Glanz und Knitter */
+function drawTape(c, l, x, y, w, h) {
+  const r = seeded(l.id * 7 + 1), z = Math.min(h * .14, w * .05), n = Math.max(7, Math.round(h / Math.max(1, z * .9))), skL = (r() - .5) * h * .35, skR = (r() - .5) * h * .35, pts = [];
+  pts.push([x + Math.max(0, skL), y], [x + w - Math.max(0, -skR), y]);
+  for (let i = 1; i < n; i++) { const v = i / n; pts.push([x + w - Math.max(0, -skR) + skR * v - (i % 2 ? z * (.35 + .65 * r()) : z * .15 * r()), y + h * v]); }
+  pts.push([x + w - Math.max(0, skR), y + h], [x + Math.max(0, -skL), y + h]);
+  for (let i = n - 1; i > 0; i--) { const v = i / n; pts.push([x + Math.max(0, skL) - skL * v + (i % 2 ? z * (.35 + .65 * r()) : z * .15 * r()), y + h * v]); }
+  const path = () => { c.beginPath(); pts.forEach(([px, py], i) => i ? c.lineTo(px, py) : c.moveTo(px, py)); c.closePath(); };
+  const clear = /^#f[4-9a-f]f[4-9a-f]/i.test(l.fill || '');
+  c.save(); c.shadowColor = 'rgba(0,0,0,.18)'; c.shadowBlur = h * .16; c.shadowOffsetY = h * .05; c.globalAlpha *= clear ? .42 : .74; c.fillStyle = l.fill; path(); c.fill(); c.restore();
+  c.save(); path(); c.clip();
+  let g = c.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, 'rgba(255,255,255,.35)'); g.addColorStop(.18, 'rgba(255,255,255,.05)'); g.addColorStop(.7, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(0,0,0,.08)');
+  c.fillStyle = g; c.fillRect(x - z, y, w + 2 * z, h);
+  const sx = x + w * (.2 + r() * .5); g = c.createLinearGradient(sx - w * .12, 0, sx + w * .12, 0); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(.5, 'rgba(255,255,255,.22)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = g; c.fillRect(x - z, y, w + 2 * z, h);
+  const dots = Math.min(400, Math.round(w * h / 30)), d = Math.max(1, h * .02);
+  for (let i = 0; i < dots; i++) { c.fillStyle = r() < .6 ? 'rgba(255,255,255,.07)' : 'rgba(0,0,0,.03)'; c.fillRect(x + r() * w, y + r() * h, d, d * (.5 + r())); }
+  c.lineWidth = Math.max(.8, h * .025);
+  for (let k = 0; k < 1 + Math.floor(r() * 2); k++) { const kx = x + w * (.15 + r() * .7), dx = (r() - .5) * h * .5; const bx = (r() - .5) * h * .3; c.strokeStyle = 'rgba(255,255,255,.22)'; c.beginPath(); c.moveTo(kx, y); c.quadraticCurveTo(kx + dx / 2 + bx, y + h / 2, kx + dx, y + h); c.stroke();
+    c.strokeStyle = 'rgba(0,0,0,.05)'; c.beginPath(); c.moveTo(kx + c.lineWidth, y); c.quadraticCurveTo(kx + dx / 2 + bx + c.lineWidth, y + h / 2, kx + dx + c.lineWidth, y + h); c.stroke(); }
+  c.strokeStyle = 'rgba(255,255,255,.3)'; c.lineWidth = Math.max(.8, h * .03); c.beginPath(); c.moveTo(x, y + c.lineWidth); c.lineTo(x + w, y + c.lineWidth); c.stroke();
+  c.strokeStyle = 'rgba(0,0,0,.12)'; c.lineWidth = Math.max(.8, h * .03); path(); c.stroke();
+  c.restore();
+}
+/* Büroklammer: gebogener Draht mit Metallglanz */
+function drawClip(c, l, x, y, w, h) {
+  const t = Math.max(1.5, w * .085), R1 = w * .2, R2 = w * .3, R3 = w * .4, yb1 = y + h - w * .18 - R1 - w * .22, yt = y + R2 + t, yb2 = y + h - R3 - t;
+  const path = () => { c.beginPath(); c.moveTo(x + w * .3, y + h * .3); c.lineTo(x + w * .3, yb1); c.arc(x + w * .5, yb1, R1, Math.PI, 0, true); c.lineTo(x + w * .7, yt);
+    c.arc(x + w * .4, yt, R2, 0, Math.PI, true); c.lineTo(x + w * .1, yb2); c.arc(x + w * .5, yb2, R3, Math.PI, 0, true); c.lineTo(x + w * .9, y + h * .42); };
+  const silver = !l.fill || l.fill === '#9aa0a6', base = silver ? '#8b9198' : l.fill;
+  c.save(); c.lineCap = 'round'; c.lineJoin = 'round';
+  c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = t * 2.2; c.shadowOffsetX = t * .8; c.shadowOffsetY = t * 1.4; c.strokeStyle = 'rgba(0,0,0,.45)'; c.lineWidth = t * 1.05; path(); c.stroke();
+  c.shadowColor = 'transparent'; c.strokeStyle = base; c.lineWidth = t; path(); c.stroke();
+  c.strokeStyle = silver ? '#d5d9dd' : 'rgba(255,255,255,.45)'; c.lineWidth = t * .55; path(); c.stroke();
+  c.translate(-t * .15, -t * .15); c.strokeStyle = 'rgba(255,255,255,.9)'; c.lineWidth = t * .2; path(); c.stroke();
+  c.restore();
+}
+/* Foldback-Klammer: schwarzer Lackkörper mit Glanzkante, silberne Bügel */
+function drawBinder(c, x, y, w, h) {
+  c.save(); const top = y + h * .45, bw = w, body = () => { c.beginPath(); c.moveTo(x + bw * .12, top); c.lineTo(x + bw * .88, top); c.quadraticCurveTo(x + bw * .93, top, x + bw * .95, top + h * .08); c.lineTo(x + bw, y + h); c.lineTo(x, y + h); c.lineTo(x + bw * .05, top + h * .08); c.quadraticCurveTo(x + bw * .07, top, x + bw * .12, top); c.closePath(); };
+  c.shadowColor = 'rgba(0,0,0,.4)'; c.shadowBlur = h * .12; c.shadowOffsetY = h * .06; c.fillStyle = '#161616'; body(); c.fill(); c.shadowColor = 'transparent';
+  const g = c.createLinearGradient(0, top, 0, y + h); g.addColorStop(0, 'rgba(255,255,255,.28)'); g.addColorStop(.25, 'rgba(255,255,255,.06)'); g.addColorStop(.7, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(255,255,255,.12)');
+  c.fillStyle = g; body(); c.fill();
+  c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = Math.max(1, h * .02); c.beginPath(); c.moveTo(x + bw * .14, top + h * .025); c.lineTo(x + bw * .86, top + h * .025); c.stroke();
+  const t = Math.max(2, w * .045), arm = () => { c.beginPath(); c.moveTo(x + w * .26, top + h * .12); c.lineTo(x + w * .33, y + h * .03); c.lineTo(x + w * .67, y + h * .03); c.lineTo(x + w * .74, top + h * .12); };
+  c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = '#6e747b'; c.lineWidth = t; arm(); c.stroke(); c.strokeStyle = '#d9dde1'; c.lineWidth = t * .5; arm(); c.stroke();
+  c.translate(-t * .12, -t * .12); c.strokeStyle = 'rgba(255,255,255,.9)'; c.lineWidth = t * .18; arm(); c.stroke();
+  c.restore();
+}
 function drawShapeLayer(c, l) {
   const w = l.w, h = l.h, x = -w / 2, y = -h / 2;
   if (l.shadow) { c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = Math.max(w, h) * .05; c.shadowOffsetY = Math.max(w, h) * .02; }
@@ -423,9 +468,7 @@ function drawShapeLayer(c, l) {
   const sw = Math.max(2, l.sw || 8);
   if (l.kind === 'line') { c.lineWidth = Math.max(2, h); c.beginPath(); c.moveTo(x + h / 2, 0); c.lineTo(x + w - h / 2, 0); c.stroke(); return; }
   if (l.kind === 'arrow') { const t = Math.max(3, h * .16), hl = Math.min(w * .4, h * .9); c.beginPath(); c.moveTo(x, -t / 2); c.lineTo(x + w - hl, -t / 2); c.lineTo(x + w - hl, -h / 2); c.lineTo(x + w, 0); c.lineTo(x + w - hl, h / 2); c.lineTo(x + w - hl, t / 2); c.lineTo(x, t / 2); c.closePath(); c.fill(); return; }
-  if (l.kind === 'tape') { c.globalAlpha *= .8; const r = seeded(l.id * 7 + 1), z = h * .12; c.beginPath(); c.moveTo(x, y);
-    for (let i = 1; i <= 6; i++) c.lineTo(x + w + (i % 2 ? -z : 0) * r(), y + h * i / 6); for (let i = 5; i >= 0; i--) c.lineTo(x + (i % 2 ? z : 0) * r(), y + h * i / 6); c.closePath(); c.fill();
-    c.globalAlpha *= .25; c.fillStyle = '#fff'; c.fillRect(x + w * .05, y + h * .15, w * .9, h * .12); return; }
+  if (l.kind === 'tape') { drawTape(c, l, x, y, w, h); return; }
   if (drawDecoShape(c, l, x, y, w, h, sw)) return;
   if (l.kind === 'frame') { c.lineWidth = sw; c.strokeRect(x + sw / 2, y + sw / 2, w - sw, h - sw); return; }
   shapePath(c, l.kind, x, y, w, h, l.radius ?? 18);

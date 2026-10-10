@@ -512,7 +512,7 @@ function panelTemplates() {
     <div class="vars">${def.vars.map((vn, i) => `<button class="var" data-tplvar="${i}" aria-pressed="${t.v === i}">${tplSVG(def.id, i)}<span>${vn}</span></button>`).join('')}</div>
     ${slider('tp.gap', 'Abstand', 0, 8, .1, 'd1', (def.gap ?? .025) * 100, 100)}${slider('tp.rad', 'Ecken', 0, 40, 1, 'n', 0)}
     <div class="row"><span class="note">Schatten</span><div class="chips">${[['tpl', 'Vorlage'], ['on', 'An'], ['off', 'Aus']].map(([k, lb]) => chip(`data-tplshadow="${k}"`, lb, (t.shadow == null ? 'tpl' : t.shadow ? 'on' : 'off') === k)).join('')}</div></div>
-    ${def.noMirror ? '' : `<div class="row"><span class="note">Seiten</span><div class="chips">${chip('data-tplmix="mix"', 'Abwechslungsreich', !t.uniform)}${chip('data-tplmix="uni"', 'Einheitlich', !!t.uniform)}</div>${t.uniform ? '' : btn('tplReroll', 'Neu würfeln')}</div>`}
+    ${def.fixed ? '' : `<div class="row"><span class="note">Seiten</span><div class="chips">${chip('data-tplmix="mix"', 'Abwechslungsreich', !t.uniform)}${chip('data-tplmix="uni"', 'Einheitlich', !!t.uniform)}</div>${t.uniform ? '' : btn('tplReroll', 'Neu würfeln')}</div>`}
     <div class="row"><span class="note">Leere Felder</span><div class="chips">${chip('data-tplfill="ph"', 'Platzhalter', t.fill !== 'repeat')}${chip('data-tplfill="repeat"', 'Fotos wiederholen', t.fill === 'repeat')}</div></div>
     ${nPh ? `<p class="note"><b>${nPh} leere${nPh === 1 ? 's Feld' : ' Felder'}</b> – tippe auf ein „+“ oder <label class="linkish" for="fileIn">wähle Fotos</label>, sie werden der Reihe nach eingesetzt.</p>` : ''}
   </div>` : `<p class="note">Wähle eine Vorlage – leere Felder füllst du danach per Antippen. Nochmal tippen wechselt die Variante.</p>`;
