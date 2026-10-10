@@ -349,10 +349,10 @@ function drawTextLayer(c, l) {
   const m = textMetrics(l);
   if (LETTER_BG.has(l.bg)) { drawLetters(c, l, m); return; }
   if (l.bg === 'pin') { // Orts-Pille mit Stecknadel
-    c.save(); c.shadowColor = 'rgba(0,0,0,.18)'; c.shadowBlur = l.size * .3; c.shadowOffsetY = l.size * .06; c.fillStyle = l.bgColor && l.bgColor !== '#111111' ? l.bgColor : '#ffffff';
+    c.save(); c.shadowColor = 'rgba(0,0,0,.18)'; c.shadowBlur = l.size * .3; c.shadowOffsetY = l.size * .06; c.fillStyle = l.bgColor && (l.bgSet || l.bgColor !== '#111111') ? l.bgColor : '#ffffff';
     roundPath(c, -m.w / 2, -m.h / 2, m.w, m.h, m.h / 2); c.fill(); c.restore();
-    const px = -m.w / 2 + m.pad * .55 + l.size * .3, py = 0, pr = l.size * .28; c.fillStyle = '#8a4bd8'; c.beginPath(); c.arc(px, py - pr * .25, pr, Math.PI * .85, Math.PI * 2.15); c.lineTo(px, py + pr * 1.15); c.closePath(); c.fill();
-    c.fillStyle = '#ffffff'; c.beginPath(); c.arc(px, py - pr * .25, pr * .38, 0, Math.PI * 2); c.fill();
+    const px = -m.w / 2 + m.pad * .55 + l.size * .3, py = 0, pr = l.size * .28; c.fillStyle = l.pinColor || '#8a4bd8'; c.beginPath(); c.arc(px, py - pr * .25, pr, Math.PI * .85, Math.PI * 2.15); c.lineTo(px, py + pr * 1.15); c.closePath(); c.fill();
+    c.fillStyle = /^#(f|e)[0-9a-f](f|e)/i.test(l.pinColor || '') ? '#1d1d1d' : '#ffffff'; c.beginPath(); c.arc(px, py - pr * .25, pr * .38, 0, Math.PI * 2); c.fill();
   }
   if (l.curve && l.bg === 'none') { drawCurvedText(c, l, m); return; }
   if (l.bg === 'solid' || l.bg === 'soft') { c.save(); c.globalAlpha *= l.bg === 'soft' ? .62 : 1; c.fillStyle = l.bgColor; roundPath(c, -m.w / 2, -m.h / 2, m.w, m.h, l.size * .28); c.fill(); c.restore(); }
