@@ -1,5 +1,5 @@
 /* Streifzug – Oberfläche, Gesten, Werkzeuge, Export */
-import { $, clamp, clone, de, esc, state, ui, sources, cache, ids, newId, dims, selLayer, toast, defParams, upgradeParams,
+import { haptic, $, clamp, clone, de, esc, state, ui, sources, cache, ids, newId, dims, selLayer, toast, defParams, upgradeParams,
   FORMATS, HSL_BANDS, LOOKS, LOOK_CATS, FONTS, TEXT_COLORS, BG_COLORS, FRAME_COLORS, RATIOS, ID_CURVE, BLENDS, STAMP_COLORS } from './core.js';
 import { mk, makeAux, processImage, prepare, curveFn, pickHealSource, wbFromPoint, LEAKS, shrink } from './process.js';
 import { flags, getCut, hasCut, loadScaled, orientCanvas, cropAspect, cropRect, boxOf, drawScene, ensureCache, releaseAux, cacheKey, drawSample, SHAPES, BG_PATTERNS, FRAMES } from './scene.js';
@@ -184,6 +184,7 @@ function snapMove(l, nx, ny) {
   const ys = [H / 2, 0, H, ...ys0]; const cy = straight ? [[0, ny], [-b.oh / 2, ny - b.oh / 2], [b.oh / 2, ny + b.oh / 2]] : [[0, ny]];
   let by = null; for (const [off, v] of cy) for (const t of ys) { const d = Math.abs(v - t); if (d < th && (!by || d < by.d)) by = { d, y: t - off, g: t }; }
   if (by) { ny = by.y; guides.push({ y: by.g }); }
+  const gk = guides.map(g => g.x ?? 'y' + g.y).join(); if (gk && gk !== ui.guideKey) haptic(); ui.guideKey = gk;
   ui.guides = guides; return [nx, ny];
 }
 function startTool(tool, l, p) {
@@ -278,7 +279,7 @@ cv.addEventListener('pointermove', e => {
 });
 function endPtr(e) {
   if (!ptrs.has(e.pointerId)) return; ptrs.delete(e.pointerId);
-  if (!ptrs.size && multiTap) { const mt = multiTap; multiTap = null; if (mt.n >= 2 && !mt.moved && performance.now() - mt.t < 350 && e.type === 'pointerup') { gest = null; ui.guides = []; if (mt.n === 2) { undo(); toast('Rückgängig'); } else { redo(); toast('Wiederholt'); } return; } }
+  if (!ptrs.size && multiTap) { const mt = multiTap; multiTap = null; if (mt.n >= 2 && !mt.moved && performance.now() - mt.t < 350 && e.type === 'pointerup') { gest = null; ui.guides = []; haptic(); if (mt.n === 2) { undo(); toast('Rückgängig'); } else { redo(); toast('Wiederholt'); } return; } }
   if (ptrs.size > 0) { if (gest && /^pinch(Layer|Crop|Pin)$/.test(gest.mode)) gest = { mode: 'none', l: gest.l, moved: true }; return; }
   const g = gest; gest = null; ui.guides = []; flags.throttle = 0; if (!g || !g.target) ui.dropId = null;
   if (g) {
@@ -307,7 +308,7 @@ cv.addEventListener('wheel', e => { e.preventDefault(); const p = toCanvas(e);
 /* Doppeltipp aufs Foto: Ausschnitt im Rahmen verschieben und zoomen (nochmal Doppeltipp: zurück zum Rahmen) */
 function enterCrop(on) {
   const l = selLayer(); if (!l || l.type !== 'image' || !l.srcId) return;
-  ui.tab.image = on ? 'zuschnitt' : 'rahmen'; ui.pick = false; renderUI();
+  ui.tab.image = on ? 'zuschnitt' : 'rahmen'; ui.pick = false; haptic(); renderUI();
   if (on) toast(l.crop.box ? 'Ziehen verschiebt den Ausschnitt im Panorama' : 'Foto im Rahmen verschieben · Doppeltipp: fertig');
 }
 /* Motiv per Antippen erkennen (lokales Modell, kein Upload) */
@@ -322,12 +323,13 @@ async function runSegment(l, u, v, mode) {
     if (cov < .002) { toast('Hier wurde nichts erkannt – tippe mitten aufs Motiv'); return; }
     if (!l.cut) l.cut = { on: true, strokes: [] }; l.cut.on = true; if (l.cut.refine == null) l.cut.refine = true;
     l.cut.strokes.push({ m: mode, d: maskToPNG(m), p: [+u.toFixed(4), +v.toFixed(4)] });
-    commit(); toast(mode === 'ai' ? 'Motiv erkannt · weitere Teile antippen oder mit „Radieren“ korrigieren' : 'Bereich entfernt');
+    haptic(); commit(); toast(mode === 'ai' ? 'Motiv erkannt · weitere Teile antippen oder mit „Radieren“ korrigieren' : 'Bereich entfernt');
   } catch (e) { console.error(e); toast('Die Erkennung ist auf diesem Gerät nicht verfügbar – nutze „Malen“.'); }
   finally { ui.segBusy = false; ui.segAt = null; requestRender(); }
 }
 cutHooks.onReady = () => requestRender();
 function selectLayer(id) {
+  if (id != null && id !== ui.sel) haptic();
   if (ui.sel && ui.sel !== id) releaseAux(selLayer());
   ui.sel = id; ui.pick = false; ui.maskSel = 0; renderUI();
 }
@@ -485,7 +487,9 @@ function paintFill(inp) {
 panel.addEventListener('input', e => {
   const t = e.target, l = selLayer();
   if (t.matches('input[type=range][data-k]')) {
-    const v = +t.value; if (/^(p|h|g|gr|m|b|pv)\./.test(t.dataset.k)) flags.draft = true; if (/^cut\./.test(t.dataset.k)) flags.throttle = 160; setVal(t.dataset.k, v / +t.dataset.scale); t.closest('.sl').querySelector('output').textContent = FMT[t.dataset.fmt](v);
+    let v = +t.value; const def = +t.dataset.def, span = +t.max - +t.min;
+    if (v !== def && Math.abs(v - def) < span * .012 && def >= +t.min && def <= +t.max) { v = def; t.value = def; if (!t._mag) haptic(); t._mag = true; } else if (Math.abs(v - def) > span * .03) t._mag = false;
+    if (/^(p|h|g|gr|m|b|pv)\./.test(t.dataset.k)) flags.draft = true; if (/^cut\./.test(t.dataset.k)) flags.throttle = 160; setVal(t.dataset.k, v / +t.dataset.scale); t.closest('.sl').querySelector('output').textContent = FMT[t.dataset.fmt](v);
     t.closest('.sl').classList.toggle('changed', v !== +t.dataset.def); paintFill(t);
     if (t.dataset.k.startsWith('h.')) markBands(); if (t.dataset.k.startsWith('g.')) markGrade();
     if (t.dataset.k.startsWith('tp.')) layout(false);
@@ -556,8 +560,9 @@ function renderPanel() {
   else if (m === 'shape') h = t === 'ebene' ? panelLayerCommon(l) : panelShape(l);
   else if (m === 'slot') h = panelSlot(l);
   else { const g = groupOf(t); h = (g[3].length > 1 ? `<div class="seg" role="tablist">${g[3].map(k => `<button data-sub="${k}" aria-selected="${k === t}">${SUB_LABEL[k]}</button>`).join('')}</div>` : '') + (IMAGE_PANELS[t] || IMAGE_PANELS.looks)(l, l.params); }
-  const keep = panel.dataset.key === m + t ? panel.scrollTop : 0;
+  const same = panel.dataset.key === m + t, keep = same ? panel.scrollTop : 0;
   panel.innerHTML = h; panel.dataset.key = m + t; panel.scrollTop = keep;
+  if (!same) { panel.classList.remove('enter'); void panel.offsetWidth; panel.classList.add('enter'); }
   panel.querySelectorAll('input[type=range]').forEach(paintFill);
   if (m === 'none' && t === 'canvas') drawSlideThumbs();
   if (m === 'image') { if (t === 'looks') fillThumbs(); if (t === 'licht') { flags.histDirty = true; requestRender(); } if (t === 'kurve') setupCurve(); }
@@ -588,7 +593,8 @@ function panelTemplates() {
   let list = cat === 'fav' ? TEMPLATES.filter(T => favs.includes(T.id)) : cat === 'recent' ? recent.map(id => tplDef(id)).filter(Boolean) : TEMPLATES.filter(T => cat === 'all' || T.cat === cat);
   const nPh = state.layers.filter(l => l.type === 'image' && !l.srcId).length, styled = t && TPL_STYLE_KEYS.some(k => t[k] != null && t[k] !== 0);
   const cur = def ? `<div class="tpl-cur">
-    <div class="row"><b class="grow">${def.name}</b>${btn('tplFav', favs.includes(def.id) ? '★ Gemerkt' : '☆ Merken')}${btn('tplShuffle', 'Fotos mischen')}${btn('tplRelease', 'Lösen')}</div>
+    <div class="tpl-head"><b>${def.name}</b><button class="icon-btn fav${favs.includes(def.id) ? ' on' : ''}" data-act2="tplFav" aria-label="${favs.includes(def.id) ? 'Aus Favoriten entfernen' : 'Als Favorit merken'}" title="Merken">${favs.includes(def.id) ? '★' : '☆'}</button></div>
+    <div class="row">${btn('tplShuffle', '⇄ Fotos mischen')}${btn('tplRelease', 'Vorlage lösen')}</div>
     <div class="vars">${def.vars.map((vn, i) => `<button class="var" data-tplvar="${i}" aria-pressed="${t.v === i}">${tplSVG(def.id, i)}<span>${vn}</span></button>`).join('')}</div>
     ${slider('tp.gap', 'Abstand', 0, 8, .1, 'd1', (def.gap ?? .025) * 100, 100)}${slider('tp.rad', 'Ecken', 0, 40, 1, 'n', 0)}
     <div class="row"><span class="note">Schatten</span><div class="chips">${[['tpl', 'Vorlage'], ['on', 'An'], ['off', 'Aus']].map(([k, lb]) => chip(`data-tplshadow="${k}"`, lb, (t.shadow == null ? 'tpl' : t.shadow ? 'on' : 'off') === k)).join('')}</div></div>
@@ -838,14 +844,14 @@ panel.addEventListener('click', async e => {
   else if (d.slides) { state.slides = clamp(state.slides + +d.slides, 1, 20); fit(); commit(); }
   else if (d.colSet) { applyColor(d.colSet, d.v); commit(); }
   else if (d.tog) {
-    const on = t.getAttribute('aria-checked') !== 'true', k = d.tog;
+    const on = t.getAttribute('aria-checked') !== 'true', k = d.tog; haptic();
     if (k === 'grad') { state.bg.grad = on; if (state.tpl) state.tpl.bgLock = true; } else if (k === 'grid') { ui.grid = on; renderPanel(); requestRender(); return; }
     else if (k === 'stamp') l.params.stamp = on; else if (k === 'shadow' || k === 'tshadow') l.shadow = on; else if (k === 'upper') l.upper = on; else if (k === 'glow') l.glow = on;
     else if (k === 'outline') l.outline = on; else if (k === 'cutsmart') { ui.cutSmart = on; renderPanel(); return; } else if (k === 'cutrefine') l.cut.refine = on; else if (k === 'stickershadow') l.stickerShadow = on; else if (k === 'cutshow') { ui.cutShow = on; renderPanel(); requestRender(); return; }
     else if (k === 'cuton') l.cut.on = on; else if (k === 'sticker') { l.sticker = on; if (on && !(l.cut && l.cut.strokes.length)) toast('Male jetzt über das Motiv – nur das wird zum Sticker'); } else if (k === 'minv') l.params.masks[ui.maskSel].inv = on;
     commit();
   }
-  else if (d.tpl) { pushList('tplRecent', d.tpl, 12); const T = tplDef(d.tpl), v = state.tpl && state.tpl.kind === d.tpl ? (state.tpl.v + 1) % T.vars.length : 0; const n0 = state.slides;
+  else if (d.tpl) { haptic(); pushList('tplRecent', d.tpl, 12); const T = tplDef(d.tpl), v = state.tpl && state.tpl.kind === d.tpl ? (state.tpl.v + 1) % T.vars.length : 0; const n0 = state.slides;
     applyTemplate(d.tpl, v); ui.sel = null; fit(); panel.dataset.key = ''; commit(); toast(`${T.name} · ${T.vars[v]}${state.slides !== n0 ? ` · ${state.slides} Slides` : ''}${layout.hiddenCount ? ` · ${layout.hiddenCount} Foto${layout.hiddenCount === 1 ? '' : 's'} ausgeblendet` : ''}`, 'Rückgängig', undo); }
   else if (d.tplvar) { applyTemplate(state.tpl.kind, +d.tplvar); fit(); commit(); }
   else if (d.tplcat) { ui.tplCat = d.tplcat; renderPanel(); panel.querySelector('.tpl-grid')?.scrollIntoView({ block: 'nearest' }); }
@@ -1008,7 +1014,7 @@ function fillThumbs() {
 }
 /* Histogramm */
 function drawHist() {
-  const cnv = $('#hist'), l = selLayer(); if (!cnv || !l) return; const c = cache.get(l.id); if (!c || !c.proc) return;
+  const cnv = $('#hist'), l = selLayer(); if (!cnv || !l) return; const c = cache.get(cacheKey(l)); if (!c || !c.proc) return;
   const dpr = Math.min(3, devicePixelRatio || 1), W = cnv.clientWidth * dpr, H = cnv.clientHeight * dpr; cnv.width = W; cnv.height = H;
   const src = c.proc, s = Math.min(1, 300 / Math.max(src.width, src.height)), t = mk(src.width * s, src.height * s);
   t.getContext('2d').drawImage(src, 0, 0, t.width, t.height); const d = t.getContext('2d').getImageData(0, 0, t.width, t.height).data;
@@ -1060,6 +1066,7 @@ async function addFiles(files) {
     const f = files[k], id = 's' + newId();
     const src = { kind: 'file', file: f, nw: 0, nh: 0, date: f.lastModified || Date.now(), base: null };
     sources.set(id, src);
+    if (files.length > 2) toast(`Fotos werden geladen … ${k + 1} von ${files.length}`);
     try { src.base = await loadScaled(src, PREVIEW_PX); }
     catch { toast(`„${f.name}“ konnte nicht gelesen werden.`); sources.delete(id); continue; }
     const slot = empties.shift();

@@ -147,10 +147,19 @@ export const selLayer = () => state.layers.find(l => l.id === ui.sel) || null;
 
 let toastT;
 /* Meldung, optional mit Aktion (z. B. „Rückgängig“) */
+/* Haptisches Feedback: Android per vibrate, iOS (ab 18) über einen versteckten Schalter */
+let hapEl = null, hapT = 0;
+export function haptic() {
+  const now = performance.now(); if (now - hapT < 60) return; hapT = now;
+  try { if (navigator.vibrate) { navigator.vibrate(7); return; }
+    if (!hapEl) { hapEl = document.createElement('label'); hapEl.setAttribute('aria-hidden', 'true'); hapEl.style.cssText = 'position:fixed;left:-200px;top:0;opacity:0;pointer-events:none';
+      const i = document.createElement('input'); i.type = 'checkbox'; i.setAttribute('switch', ''); i.tabIndex = -1; hapEl.append(i); document.body.append(hapEl); }
+    hapEl.click(); } catch {}
+}
 export function toast(msg, actLabel, act) {
-  const t = $('#toast'); t.textContent = msg; t.hidden = false;
+  const t = $('#toast'); t.textContent = msg; t.hidden = false; t.classList.remove('in', 'out'); void t.offsetWidth; t.classList.add('in');
   if (actLabel && act) { const b = document.createElement('button'); b.className = 'toast-act'; b.textContent = actLabel; b.onclick = () => { t.hidden = true; act(); }; t.append(b); }
-  clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, actLabel ? 4500 : 2200);
+  clearTimeout(toastT); toastT = setTimeout(() => { t.classList.add('out'); toastT = setTimeout(() => { t.hidden = true; t.classList.remove('out'); }, 200); }, actLabel ? 4500 : 2200);
 }
 
 export const stampText = (ms, fmt) => {
