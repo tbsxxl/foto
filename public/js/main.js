@@ -835,6 +835,7 @@ panel.addEventListener('click', async e => {
     if (k === 'grad') { state.bg.grad = on; if (state.tpl) state.tpl.bgLock = true; } else if (k === 'grid') { ui.grid = on; renderPanel(); requestRender(); return; }
     else if (k === 'stamp') l.params.stamp = on; else if (k === 'shadow' || k === 'tshadow') l.shadow = on; else if (k === 'upper') l.upper = on; else if (k === 'glow') l.glow = on;
     else if (k === 'outline') l.outline = on; else if (k === 'cutsmart') { ui.cutSmart = on; renderPanel(); return; } else if (k === 'cutrefine') l.cut.refine = on; else if (k === 'stickershadow') l.stickerShadow = on; else if (k === 'cutshow') { ui.cutShow = on; renderPanel(); requestRender(); return; }
+    else if (k === 'cutinv') { l.cut.inv = on; toast(on ? 'Auswahl umgekehrt – jetzt ist alles außer dem Motiv ausgewählt' : 'Wieder das Motiv ausgewählt'); }
     else if (k === 'dblin') l.dbl.inside = on;
     else if (k === 'cvalues') l.chart.values = on; else if (k === 'ccard') l.chart.card = on;
     else if (k === 'cuton') l.cut.on = on; else if (k === 'sticker') { l.sticker = on; if (on && !(l.cut && l.cut.strokes.length)) toast('Male jetzt über das Motiv – nur das wird zum Sticker'); } else if (k === 'minv') l.params.masks[ui.maskSel].inv = on;
@@ -1293,7 +1294,7 @@ document.addEventListener('keydown', e => {
 });
 let keyT;
 /* ---------- Kopieren & Einfügen ---------- */
-const VERSION = 41;
+const VERSION = 42;
 const CLIP_MARK = 'streifzug-ebene:';
 function copyLayer(l) {
   ui.layerClip = clone(l); LS.set('layerClip', ui.layerClip); haptic();

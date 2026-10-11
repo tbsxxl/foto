@@ -346,12 +346,12 @@ export const IMAGE_PANELS = {
     if (region) return `${add}${list}
     ${group('Anpassung', slider('m.ex', 'Helligkeit', -2, 2, .05, 'ev') + slider('m.co', 'Kontrast', -100, 100, 1, 'signed', 0, 100) + slider('m.sat', 'Sättigung', -100, 100, 1, 'signed', 0, 100) + slider('m.temp', 'Wärme', -100, 100, 1, 'signed', 0, 100) + slider('m.st', 'Struktur', -100, 100, 1, 'signed', 0, 100))}
     ${group('Kante', slider('m.feather', 'Weiche Kante', 0, 100, 1, 'pct', 10, 100))}
-    ${toggle('minv', 'Umkehren', m.inv)}
+    ${toggle('minv', 'Auswahl umkehren', m.inv)}
     <div class="row">${btn('maskDel', 'Auswahl löschen', 'danger')}${btn('maskDup', 'Duplizieren')}</div>`;
     return `${add}${list}<div class="chips">${chip('data-mkind="radial"', 'Radial', m.kind !== 'linear')}${chip('data-mkind="linear"', 'Verlauf', m.kind === 'linear')}</div>
     ${group('Anpassung', slider('m.ex', 'Helligkeit', -2, 2, .05, 'ev') + slider('m.co', 'Kontrast', -100, 100, 1, 'signed', 0, 100) + slider('m.sat', 'Sättigung', -100, 100, 1, 'signed', 0, 100) + slider('m.temp', 'Wärme', -100, 100, 1, 'signed', 0, 100) + slider('m.st', 'Struktur', -100, 100, 1, 'signed', 0, 100))}
     ${group('Form', slider('m.rx', m.kind === 'linear' ? 'Breite' : 'Größe', 1, 100, 1, 'n', 16, 100) + (m.kind !== 'linear' ? slider('m.ry', 'Höhe', 1, 100, 1, 'n', 16, 100) : '') + slider('m.feather', 'Weiche Kante', 2, 100, 1, 'pct', 60, 100) + slider('m.angle', 'Drehung', -180, 180, 1, 'deg', 0, 180 / Math.PI))}
-    ${toggle('minv', 'Umkehren (außen statt innen)', m.inv)}
+    ${toggle('minv', 'Auswahl umkehren (außen statt innen)', m.inv)}
     <div class="row">${btn('maskDel', 'Punkt löschen', 'danger')}${btn('maskDup', 'Duplizieren')}</div>`;
   },
   freistellen: (l, p) => { const n = l.cut ? l.cut.strokes.length : 0, ai = /^ai/.test(ui.cutMode);
@@ -359,6 +359,7 @@ export const IMAGE_PANELS = {
     ${ai ? `<p class="note">${ui.cutMode === 'ai' ? '<b>Tippe aufs Motiv</b> – Person, Tier oder Gegenstand wird automatisch erkannt. Nochmal tippen fügt weitere Teile hinzu.' : '<b>Tippe auf einen Bereich</b>, der nicht zum Motiv gehören soll.'} Die Erkennung läuft auf deinem Gerät, es wird nichts hochgeladen.</p>`
       : /^lasso/.test(ui.cutMode) ? `<p class="note"><b>Umfahre einen Bereich</b> mit dem Finger – er wird ${ui.cutMode === 'lasso' ? 'zum Motiv hinzugefügt' : 'vom Motiv abgezogen'}.</p>`
       : group('', slider('ui.cutSize', 'Pinselgröße', 1, 25, .5, 'n', 5)) + (ui.cutMode === 'add' ? toggle('cutsmart', 'Kantenerkennung beim Malen (nur ähnliche Farben)', ui.cutSmart) : '')}
+    ${n ? toggle('cutinv', 'Auswahl umkehren (alles außer dem Motiv)', !!l.cut.inv) : ''}
     ${n ? group('Kante', toggle('cutrefine', 'Kanten an Farben anpassen (Haare, Fell)', !!l.cut.refine) + slider('cut.feather', 'Weichheit', 0, 10, .5, 'd1', 0) + slider('cut.shift', 'Kante schrumpfen / erweitern', -10, 10, .5, 'd1', 0)) : ''}
     ${group('Ansicht', `<div class="chips">${[['dim', 'Hintergrund abdunkeln'], ['red', 'Maske rot'], ['off', 'Normal']].map(([k, lb]) => chip(`data-cutview="${k}"`, lb, ui.cutView === k)).join('')}</div>`)}
     ${group('Verwenden', (n ? toggle('cuton', 'Motiv liegt vor Text & Elementen', l.cut.on !== false) : '') + toggle('sticker', 'Nur das Motiv zeigen (Hintergrund weg)', l.sticker)

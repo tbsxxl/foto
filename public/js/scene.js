@@ -298,7 +298,7 @@ export const hasCut = l => !!(l.cut && l.cut.on !== false && l.cut.strokes && l.
 const cutCache = new WeakMap();
 /* Freistellung zum verarbeiteten Bild holen (gecacht; beim Malen gedrosselt) */
 export function getCut(l, img) {
-  const opt = { refine: !!l.cut.refine, feather: l.cut.feather || 0, shift: l.cut.shift || 0 }, key = JSON.stringify(l.cut.strokes) + JSON.stringify(opt) + '|' + cutHooks.ver; let e = cutCache.get(img);
+  const opt = { refine: !!l.cut.refine, feather: l.cut.feather || 0, shift: l.cut.shift || 0, invert: !!l.cut.inv }, key = JSON.stringify(l.cut.strokes) + JSON.stringify(opt) + '|' + cutHooks.ver; let e = cutCache.get(img);
   if (e && e.key === key) return e;
   if (e && flags.throttle && performance.now() - e.t < flags.throttle) { flags.pending = true; return e; }
   e = { key, t: performance.now(), ...cutout(img, l.cut.strokes, opt) }; cutCache.set(img, e); return e;

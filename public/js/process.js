@@ -638,6 +638,7 @@ export function cutMask(src, strokes, opt = {}) {
   const f = Math.round((opt.feather || 0) * MM / 720 * 1.5), sh = (opt.shift || 0) * MM / 720 * 1.2;
   if (f || sh) { const r = Math.max(1, f, Math.ceil(Math.abs(sh))); a = boxBlur(boxBlur(a, mw, mh, r), mw, mh, r);
     const off = sh / (2 * r + 1); for (let i = 0; i < a.length; i++) { let v = a[i] + off; if (!f) v = (v - .5) * 3 + .5; a[i] = clamp(v); } }
+  if (opt.invert) for (let i = 0; i < a.length; i++) a[i] = 1 - a[i]; // Auswahl umkehren: alles außer dem Motiv
   const c = mk(mw, mh), x = c.getContext('2d'), id = x.createImageData(mw, mh);
   for (let i = 0; i < a.length; i++) { const j = i * 4; id.data[j] = id.data[j + 1] = id.data[j + 2] = 255; id.data[j + 3] = a[i] * 255; }
   x.putImageData(id, 0, 0); c.incomplete = incomplete; return c;
