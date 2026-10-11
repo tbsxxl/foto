@@ -1,6 +1,7 @@
 /* Ebenen, Quellen, Zeichnen der Szene */
 import { clamp, seeded, state, ui, sources, cache, dims, FONTS, stampText } from './core.js';
 import { mk, makeAux, processImage, prepare, cutout, shrink, cutHooks, pendingAssets, blurCanvas } from './process.js';
+import qrcode from '../vendor/qrcode/qrcode.mjs';
 import { drawTapeReal, drawClipReal, drawBinderReal, drawDoodle, isDoodle, DOODLE_LIST } from './props.js';
 
 export const flags = { fontsTick: 0, histDirty: false, throttle: 0, pending: false, draft: false };
@@ -494,13 +495,26 @@ function drawTextLayer(c, l) {
   if (l.bg === 'band') { c.save(); c.fillStyle = l.bgColor; m.lines.forEach((t, i) => { const px = l.size * .22; roundPath(c, lineX(i) - px, lineY(i) - m.lh / 2 - l.size * .02, m.widths[i] + 2 * px, m.lh, l.size * .14); c.fill(); }); c.restore(); }
   const put = (fn, t, x, y) => { if (!m.ls) { c[fn](t, x, y); return; } for (const ch of t) { c[fn](ch, x, y); x += c.measureText(ch).width + m.ls; } };
   if (m.st) { c.save(); c.lineJoin = 'round'; c.lineWidth = m.st * 2; c.strokeStyle = l.strokeColor || '#111'; m.lines.forEach((t, i) => put('strokeText', t, lineX(i), lineY(i))); c.restore(); }
+  // Text-Effekte wie in Canva
+  const fx = l.fx && l.fx !== 'none' ? l.fx : null, A = (l.fxAmt ?? 50) / 100, fc = l.fxColor || '#ff3b6b', S = l.size;
+  const all = (fn, dx = 0, dy = 0) => m.lines.forEach((t, i) => put(fn, t, lineX(i) + dx, lineY(i) + dy));
+  if (fx === 'hollow') { c.save(); c.lineJoin = 'round'; c.lineWidth = S * (.015 + .045 * A); c.strokeStyle = l.color; all('strokeText'); c.restore(); return; }
+  if (fx === 'splice') { const o = S * (.02 + .08 * A); c.save(); c.fillStyle = fc; all('fillText', o, o); c.lineJoin = 'round'; c.lineWidth = S * .035; c.strokeStyle = l.color; all('strokeText'); c.restore(); return; }
+  if (fx === 'echo') { const o = S * (.02 + .07 * A); c.save(); for (let k = 3; k >= 1; k--) { c.globalAlpha = (l.opacity ?? 1) * (.16 + .16 * (3 - k)); c.fillStyle = fc; all('fillText', o * k, o * k); } c.restore(); }
+  if (fx === 'hard') { const n = Math.max(2, Math.round(S * (.02 + .1 * A) / 1.5)); c.save(); c.fillStyle = fc; for (let k = n; k >= 1; k--) all('fillText', k * 1.5, k * 1.5); c.restore(); }
+  if (fx === 'glitch') { const o = S * (.015 + .06 * A); c.save(); c.globalCompositeOperation = 'source-over'; c.globalAlpha *= .9; c.fillStyle = '#00e5ff'; all('fillText', -o, 0); c.fillStyle = '#ff2bd6'; all('fillText', o, o * .25); c.restore(); }
+  if (fx === 'neon') { c.save(); c.fillStyle = fc; c.shadowColor = fc; for (const [b, a] of [[1.1, .9], [.55, 1], [.22, 1]]) { c.shadowBlur = S * b * (.4 + A); c.globalAlpha = (l.opacity ?? 1) * a; all('fillText'); } c.restore();
+    c.save(); c.fillStyle = mixWhite(fc, .72); all('fillText'); c.restore(); return; }
   c.save(); c.fillStyle = l.color;
-  if (l.glow) { c.shadowColor = l.color; c.shadowBlur = l.size * .5; }
+  if (fx === 'lift') { c.shadowColor = `rgba(0,0,0,${.25 + .45 * A})`; c.shadowBlur = S * (.15 + .5 * A); c.shadowOffsetY = S * (.04 + .12 * A); }
+  else if (fx) { /* keine Standard-Schatten bei Effekten */ }
+  else if (l.glow) { c.shadowColor = l.color; c.shadowBlur = l.size * .5; }
   else if (l.shadow && l.bg === 'none' && !m.st) { c.shadowColor = 'rgba(0,0,0,.45)'; c.shadowBlur = l.size * .18; c.shadowOffsetY = l.size * .04; }
   m.lines.forEach((t, i) => put('fillText', t, lineX(i), lineY(i)));
-  if (l.glow) { c.shadowBlur = l.size * .15; m.lines.forEach((t, i) => put('fillText', t, lineX(i), lineY(i))); }
+  if (l.glow && !fx) { c.shadowBlur = l.size * .15; m.lines.forEach((t, i) => put('fillText', t, lineX(i), lineY(i))); }
   c.restore();
 }
+function mixWhite(hex, k) { const n = parseInt((hex || '#ffffff').slice(1).padEnd(6, '0').slice(0, 6), 16), r = n >> 16 & 255, g = n >> 8 & 255, b = n & 255; return `rgb(${Math.round(r + (255 - r) * k)},${Math.round(g + (255 - g) * k)},${Math.round(b + (255 - b) * k)})`; }
 
 /* Text auf einem Bogen: positiv = nach oben gewölbt, negativ = nach unten */
 function drawCurvedText(c, l, m) {
@@ -523,7 +537,7 @@ function drawCurvedText(c, l, m) {
 
 /* ---------- Formen ---------- */
 export const SHAPES = [['rect', 'Rechteck'], ['round', 'Abgerundet'], ['circle', 'Kreis'], ['frame', 'Rahmen'], ['line', 'Linie'], ['arrow', 'Pfeil'], ['star', 'Stern'], ['heart', 'Herz'], ['sparkle', 'Funkeln'], ['blob', 'Klecks'], ['tape', 'Klebeband'], ['arch', 'Bogen'],
-  ['paper', 'Papierfetzen'], ['lace', 'Spitzenrand'], ['starSticker', 'Glitzerstern'], ['leaves', 'Herbstblätter'], ['check', 'Häkchen'], ['spiral', 'Spiralbindung'], ['clip', 'Büroklammer'], ['binder', 'Klammer'], ['laurel', 'Lorbeer'], ['scribble', 'Kritzel-Rahmen'], ['corners', 'Kritzel-Ecken'], ['scribbleArrow', 'Kritzel-Pfeil'], ...DOODLE_LIST];
+  ['paper', 'Papierfetzen'], ['lace', 'Spitzenrand'], ['starSticker', 'Glitzerstern'], ['leaves', 'Herbstblätter'], ['check', 'Häkchen'], ['spiral', 'Spiralbindung'], ['clip', 'Büroklammer'], ['binder', 'Klammer'], ['laurel', 'Lorbeer'], ['scribble', 'Kritzel-Rahmen'], ['corners', 'Kritzel-Ecken'], ['scribbleArrow', 'Kritzel-Pfeil'], ['qr', 'QR-Code'], ['chart', 'Diagramm'], ...DOODLE_LIST];
 /* handgezeichnete Linie mit leichtem Zittern */
 function wobble(c, pts, seed, amp) {
   const r = seeded(seed); c.beginPath();
@@ -569,6 +583,73 @@ function drawDecoShape(c, l, x, y, w, h, sw) {
     wobble(c, [[x + w * .72, y + h * .22], [x + w * .96, y + h * .22], [x + w * .93, y + h * .5]], l.id + 12, sw * .5); return true; }
   return false;
 }
+/* ---------- QR-Code ---------- */
+qrcode.stringToBytes = s => Array.from(new TextEncoder().encode(s)); // Umlaute & Emojis (UTF-8)
+const qrCache = new Map();
+function qrMatrix(text) {
+  let m = qrCache.get(text); if (m !== undefined) return m;
+  try { const q = qrcode(0, 'M'); q.addData(text || ' ', 'Byte'); q.make(); const n = q.getModuleCount(), a = new Uint8Array(n * n); for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) a[r * n + k] = q.isDark(r, k) ? 1 : 0; m = { n, a }; }
+  catch { m = null; }
+  qrCache.set(text, m); if (qrCache.size > 30) qrCache.delete(qrCache.keys().next().value); return m;
+}
+function drawQR(c, l, x, y, w, h) {
+  const q = l.qr || {}, m = qrMatrix(q.text || 'https://'), s = Math.min(w, h), ox = -s / 2, oy = -s / 2;
+  if (q.bg !== 'none') { c.fillStyle = q.bg || '#ffffff'; roundPath(c, ox, oy, s, s, s * .06); c.fill(); }
+  c.shadowColor = 'transparent'; if (!m) return;
+  const quiet = q.bg === 'none' ? 0 : 2, ms = s / (m.n + 2 * quiet), fg = q.fg || '#111111', finder = (r, k) => (r < 7 && k < 7) || (r < 7 && k >= m.n - 7) || (r >= m.n - 7 && k < 7);
+  c.fillStyle = fg;
+  for (let r = 0; r < m.n; r++) for (let k = 0; k < m.n; k++) { if (!m.a[r * m.n + k] || (q.style === 'dots' && finder(r, k))) continue; const px = ox + (k + quiet) * ms, py = oy + (r + quiet) * ms;
+    if (q.style === 'dots') { c.beginPath(); c.arc(px + ms / 2, py + ms / 2, ms * .46, 0, Math.PI * 2); c.fill(); } else c.fillRect(px - .2, py - .2, ms + .4, ms + .4); }
+  if (q.style === 'dots') for (const [r0, k0] of [[0, 0], [0, m.n - 7], [m.n - 7, 0]]) { const px = ox + (k0 + quiet) * ms, py = oy + (r0 + quiet) * ms;
+    c.beginPath(); rrPath(c, px, py, 7 * ms, 7 * ms, ms * 2); rrPath(c, px + ms, py + ms, 5 * ms, 5 * ms, ms * 1.4); c.fill('evenodd'); roundPath(c, px + 2 * ms, py + 2 * ms, 3 * ms, 3 * ms, ms); c.fill(); }
+}
+/* ---------- Diagramm ---------- */
+export const CHART_PALETTES = { bunt: ['#3f7fe0', '#f2c14e', '#ef6b5b', '#4fb26b', '#8b5cf6', '#3fbcc4', '#f08c3a'], pastell: ['#a7c7e7', '#f6d6ad', '#f4b6c2', '#b8e0c8', '#d5c6f0', '#bfe6ea', '#f7c9a9'],
+  mono: ['#1d1d1d', '#4a4a4a', '#777777', '#a3a3a3', '#cfcfcf', '#e6e6e6', '#5e5e5e'], erde: ['#8c5a3c', '#c49a6c', '#6b7d5c', '#d9c3a0', '#a35d4b', '#4f5d6b', '#e2b07a'] };
+export function parseChart(t) {
+  return String(t || '').split(/\n/).map(r => r.trim()).filter(Boolean).map(r => { const mm = r.match(/^(.*?)[\s:;=]*(-?\d+(?:[.,]\d+)?)\s*(%?)$/); return mm ? [mm[1].trim(), parseFloat(mm[2].replace(',', '.'))] : [r, 0]; }).slice(0, 12);
+}
+function drawChart(c, l, x, y, w, h) {
+  const ch = l.chart || {}, data = parseChart(ch.data), cols = ch.colors && ch.colors.length ? ch.colors : CHART_PALETTES[ch.pal || 'bunt'], ink = ch.ink || '#1d1d1d', type = ch.type || 'bar';
+  if (ch.card) { c.fillStyle = ch.cardColor || '#ffffff'; roundPath(c, x, y, w, h, Math.min(w, h) * .06); c.fill(); }
+  c.shadowColor = 'transparent'; if (!data.length) return;
+  const pad = Math.min(w, h) * (ch.card ? .08 : .02), X = x + pad, Y = y + pad, W = w - 2 * pad, H = h - 2 * pad, fs = Math.max(10, Math.min(W, H) * .055), font = `600 ${fs}px "${ch.font || 'Instrument Sans'}", system-ui, sans-serif`;
+  const fmt = v => (Math.round(v * 10) / 10).toLocaleString('de-DE') + (ch.unit || ''), max = Math.max(...data.map(d => d[1]), 1e-9), sum = data.reduce((a, d) => a + Math.max(0, d[1]), 0) || 1;
+  c.font = font; c.fillStyle = ink; c.textBaseline = 'middle';
+  if (type === 'bar') {
+    const lab = fs * 1.6, top = ch.values !== false ? fs * 1.5 : 0, bw = W / data.length, gap = bw * .22;
+    data.forEach(([lb, v], i) => { const bh = Math.max(0, v) / max * (H - lab - top), bx = X + i * bw + gap / 2, by = Y + H - lab - bh;
+      c.fillStyle = cols[i % cols.length]; roundPath(c, bx, by, bw - gap, bh, Math.min((bw - gap) * .18, bh / 2)); c.fill();
+      c.fillStyle = ink; c.textAlign = 'center'; if (ch.values !== false) c.fillText(fmt(v), bx + (bw - gap) / 2, by - fs * .75);
+      c.fillText(fit(c, lb, bw), bx + (bw - gap) / 2, Y + H - lab / 2); });
+    c.globalAlpha *= .35; c.fillRect(X, Y + H - lab - Math.max(1, fs * .06), W, Math.max(1, fs * .06)); c.globalAlpha /= .35;
+  } else if (type === 'hbar') {
+    const rh = H / data.length, labW = Math.min(W * .32, Math.max(...data.map(d => c.measureText(d[0]).width)) + fs), valW = ch.values !== false ? fs * 3 : 0;
+    data.forEach(([lb, v], i) => { const bwid = Math.max(0, v) / max * (W - labW - valW), by = Y + i * rh + rh * .15, bh = rh * .7;
+      c.fillStyle = ink; c.textAlign = 'right'; c.fillText(fit(c, lb, labW - fs * .5), X + labW - fs * .5, by + bh / 2);
+      c.fillStyle = cols[i % cols.length]; roundPath(c, X + labW, by, bwid, bh, Math.min(bh * .3, bwid / 2)); c.fill();
+      if (ch.values !== false) { c.fillStyle = ink; c.textAlign = 'left'; c.fillText(fmt(v), X + labW + bwid + fs * .4, by + bh / 2); } });
+  } else if (type === 'pie' || type === 'donut') {
+    const legend = W > H * 1.15, R = Math.min(legend ? W * .6 : W, legend ? H : H * .7) / 2 * .94, cx = legend ? X + R + W * .02 : X + W / 2, cy = legend ? Y + H / 2 : Y + R + H * .02;
+    let a = -Math.PI / 2;
+    data.forEach(([lb, v], i) => { const da = Math.max(0, v) / sum * Math.PI * 2; c.fillStyle = cols[i % cols.length]; c.beginPath(); c.moveTo(cx, cy); c.arc(cx, cy, R, a, a + da); c.closePath(); c.fill();
+      if (ch.values !== false && da > .25) { const mid = a + da / 2, rr = type === 'donut' ? R * .78 : R * .62; c.fillStyle = '#ffffff'; c.textAlign = 'center'; c.fillText(Math.round(v / sum * 100) + ' %', cx + Math.cos(mid) * rr, cy + Math.sin(mid) * rr); }
+      a += da; });
+    if (type === 'donut') { c.save(); c.globalCompositeOperation = 'destination-out'; c.beginPath(); c.arc(cx, cy, R * .56, 0, Math.PI * 2); c.fill(); c.restore(); if (ch.card) { c.fillStyle = ch.cardColor || '#ffffff'; c.beginPath(); c.arc(cx, cy, R * .56, 0, Math.PI * 2); c.fill(); } }
+    const lx = legend ? cx + R + W * .06 : X, ly0 = legend ? cy - data.length * fs * .8 : cy + R + fs * 1.4;
+    data.forEach(([lb, v], i) => { const lyy = legend ? ly0 + i * fs * 1.6 + fs * .8 : ly0 + Math.floor(i / 2) * fs * 1.6, lxx = legend ? lx : X + (i % 2) * W / 2;
+      c.fillStyle = cols[i % cols.length]; c.beginPath(); c.arc(lxx + fs * .4, lyy, fs * .4, 0, Math.PI * 2); c.fill(); c.fillStyle = ink; c.textAlign = 'left'; c.fillText(fit(c, lb, (legend ? x + w - lx : W / 2) - fs * 1.4), lxx + fs * 1.1, lyy); });
+  } else { // Linie
+    const lab = fs * 1.6, top = fs * 1.6, n = data.length, px = i => X + (n === 1 ? W / 2 : i / (n - 1) * (W - fs * 2) + fs), mn = Math.min(0, ...data.map(d => d[1])), py = v => Y + top + (1 - (v - mn) / (max - mn || 1)) * (H - lab - top);
+    const col = cols[0]; c.beginPath(); data.forEach(([, v], i) => i ? c.lineTo(px(i), py(v)) : c.moveTo(px(i), py(v)));
+    c.save(); c.lineTo(px(n - 1), Y + H - lab); c.lineTo(px(0), Y + H - lab); c.closePath(); c.globalAlpha *= .18; c.fillStyle = col; c.fill(); c.restore();
+    c.beginPath(); data.forEach(([, v], i) => i ? c.lineTo(px(i), py(v)) : c.moveTo(px(i), py(v))); c.lineWidth = fs * .28; c.strokeStyle = col; c.lineJoin = c.lineCap = 'round'; c.stroke();
+    data.forEach(([lb, v], i) => { c.fillStyle = '#ffffff'; c.beginPath(); c.arc(px(i), py(v), fs * .32, 0, Math.PI * 2); c.fill(); c.lineWidth = fs * .16; c.stroke();
+      c.fillStyle = ink; c.textAlign = 'center'; if (ch.values !== false) c.fillText(fmt(v), px(i), py(v) - fs * .95); c.fillText(fit(c, lb, W / n), px(i), Y + H - lab / 2); });
+  }
+}
+function rrPath(c, x, y, w, h, r) { c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+function fit(c, t, maxW) { if (c.measureText(t).width <= maxW) return t; let s = t; while (s.length > 1 && c.measureText(s + '…').width > maxW) s = s.slice(0, -1); return s + '…'; }
 function drawShapeLayer(c, l) {
   const w = l.w, h = l.h, x = -w / 2, y = -h / 2;
   if (l.shadow) { c.shadowColor = 'rgba(0,0,0,.35)'; c.shadowBlur = Math.max(w, h) * .05; c.shadowOffsetY = Math.max(w, h) * .02; }
@@ -577,6 +658,8 @@ function drawShapeLayer(c, l) {
   if (l.kind === 'line') { c.lineWidth = Math.max(2, h); c.beginPath(); c.moveTo(x + h / 2, 0); c.lineTo(x + w - h / 2, 0); c.stroke(); return; }
   if (l.kind === 'arrow') { const t = Math.max(3, h * .16), hl = Math.min(w * .4, h * .9); c.beginPath(); c.moveTo(x, -t / 2); c.lineTo(x + w - hl, -t / 2); c.lineTo(x + w - hl, -h / 2); c.lineTo(x + w, 0); c.lineTo(x + w - hl, h / 2); c.lineTo(x + w - hl, t / 2); c.lineTo(x, t / 2); c.closePath(); c.fill(); return; }
   if (l.kind === 'tape') { drawTapeReal(c, l, x, y, w, h); return; }
+  if (l.kind === 'qr') { drawQR(c, l, x, y, w, h); return; }
+  if (l.kind === 'chart') { drawChart(c, l, x, y, w, h); return; }
   if (drawDecoShape(c, l, x, y, w, h, sw)) return;
   if (l.kind === 'frame') { c.lineWidth = sw; c.strokeRect(x + sw / 2, y + sw / 2, w - sw, h - sw); return; }
   shapePath(c, l.kind, x, y, w, h, l.radius ?? 18);

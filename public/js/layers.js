@@ -16,9 +16,12 @@ const SHAPE_DEF = { line: [600, 14], arrow: [420, 150], tape: [300, 80], frame: 
 const SHAPE_FILL = { tape: '#f3e2b3', frame: '#ffffff', paper: '#fbfaf6', clip: '#9aa0a6', binder: '#1c1c1c', laurel: '#ffffff', scribble: '#1d1d1d', corners: '#1d1d1d', scribbleArrow: '#1d1d1d', lace: '#fbfaf6', check: '#3b82f6' };
 const DOODLE_DEF = { dUnderline: [520, 130], dHighlight: [520, 110], dLoops: [520, 170], dPlane: [420, 300], dFlourish: [480, 200], dArrowCurve: [420, 260], dArrowDown: [150, 300], dExclaim: [160, 260], dCloud: [380, 260], dBolt: [200, 320], dHearts: [300, 280] };
 export function newShapeLayer(kind, x, y) {
-  const [w, h] = SHAPE_DEF[kind] || DOODLE_DEF[kind] || [420, 420];
-  return { id: newId(), type: 'shape', kind, x, y, w, h, rot: 0, opacity: 1, blend: 'source-over', fill: SHAPE_FILL[kind] || (kind === 'dHighlight' ? '#ffe066' : /^d[A-Z]/.test(kind) ? '#1d1d1d' : '#f2c14e'),
+  const [w, h] = SHAPE_DEF[kind] || DOODLE_DEF[kind] || (kind === 'chart' ? [760, 600] : [420, 420]);
+  const l = { id: newId(), type: 'shape', kind, x, y, w, h, rot: 0, opacity: 1, blend: 'source-over', fill: SHAPE_FILL[kind] || (kind === 'dHighlight' ? '#ffe066' : /^d[A-Z]/.test(kind) ? '#1d1d1d' : '#f2c14e'),
     outline: false, sw: /^(scribble|corners|scribbleArrow)$/.test(kind) ? 5 : /^d[A-Z]/.test(kind) ? 7 : 12, radius: 18, shadow: false };
+  if (kind === 'qr') l.qr = { text: 'https://instagram.com/', fg: '#111111', bg: '#ffffff', style: 'square' };
+  if (kind === 'chart') l.chart = { type: 'bar', data: 'Kaffee 42\nTee 18\nKakao 25\nWasser 15', pal: 'bunt', ink: '#1d1d1d', values: true, card: true, cardColor: '#ffffff' };
+  return l;
 }
 export function coverSlide(l, i) {
   const { W, H } = dims(), a = cropAspect(l);

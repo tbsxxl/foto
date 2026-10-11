@@ -11,7 +11,10 @@ export const FORMATS = {
   '4:5': { W: 1080, H: 1350, label: 'Hochformat', px: '1080×1350' },
   '1:1': { W: 1080, H: 1080, label: 'Quadrat', px: '1080×1080' },
   '3:4': { W: 1080, H: 1440, label: 'Hoch 3:4', px: '1080×1440' },
-  '9:16': { W: 1080, H: 1920, label: 'Story', px: '1080×1920' }
+  '9:16': { W: 1080, H: 1920, label: 'Story', px: '1080×1920' },
+  '2:3': { W: 1000, H: 1500, label: 'Pinterest', px: '1000×1500' },
+  '16:9': { W: 1920, H: 1080, label: 'Quer 16:9', px: '1920×1080' },
+  'A4': { W: 1240, H: 1754, label: 'A4 Poster', px: '1240×1754' }
 };
 export const HSL_BANDS = [
   ['Rot', 0, '#e5484d'], ['Orange', 30, '#f08c3a'], ['Gelb', 58, '#f2d14e'], ['Grün', 115, '#4fb26b'],

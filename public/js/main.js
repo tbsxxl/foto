@@ -2,7 +2,7 @@
 import { haptic, $, clamp, clone, de, esc, state, ui, sources, cache, ids, newId, dims, selLayer, toast, defParams, upgradeParams,
   FORMATS, HSL_BANDS, LOOKS, LOOK_CATS, FONTS, TEXT_COLORS, BG_COLORS, FRAME_COLORS, RATIOS, ID_CURVE, BLENDS, STAMP_COLORS } from './core.js';
 import { mk, makeAux, processImage, prepare, curveFn, pickHealSource, wbFromPoint, LEAKS, shrink } from './process.js';
-import { flags, getCut, hasCut, loadScaled, orientCanvas, cropAspect, cropRect, boxOf, drawScene, ensureCache, releaseAux, cacheKey, drawSample, SHAPES, BG_PATTERNS, FRAMES } from './scene.js';
+import { flags, getCut, hasCut, loadScaled, orientCanvas, cropAspect, cropRect, boxOf, drawScene, ensureCache, releaseAux, cacheKey, drawSample, SHAPES, BG_PATTERNS, FRAMES, CHART_PALETTES } from './scene.js';
 import { newImageLayer, newTextLayer, newShapeLayer, coverSlide, coverAll, computeBox } from './layers.js';
 import { isDoodle, doodleSVG, tapeType, TAPE_KINDS, TAPE_PATTERNS, TAPE_COLORS, CLIP_COLORS, BINDER_COLORS } from './props.js';
 import { TEMPLATES, TPL_CATS, tplSVG, tplDef, applyTemplate, layout, relink, shufflePhotos, releaseTemplate } from './templates.js';
@@ -103,7 +103,7 @@ function emptyMenu() {
   return [['Einfügen', 'paste', pasteAny], ['Text hinzufügen', 'text', addTextHere], ['Fotos hinzufügen', 'photo', () => $('#fileIn').click()],
     ['Vorlage wählen', 'tpl', () => { ui.tab.none = 'vorlagen'; selectLayer(null); }]];
 }
-function addTextHere() { const { W, H } = dims(), l = newTextLayer((visibleSlide() + .5) * W, H * .5); state.layers.push(l); ui.tab.text = 'text'; selectLayer(l.id); pushHistory(); setTimeout(() => $('#txtIn')?.select(), 50); }
+function addTextHere() { const { W, H } = dims(), l = newTextLayer((visibleSlide() + .5) * W, H * .5); if (brand().head) l.font = brand().head; state.layers.push(l); ui.tab.text = 'text'; selectLayer(l.id); pushHistory(); setTimeout(() => $('#txtIn')?.select(), 50); }
 let ctxItems = [];
 function openMenu(items, x, y, anchor) {
   ctxItems = items; let k = 0;
@@ -679,7 +679,7 @@ function tabFade() { tabs.classList.toggle('more', tabs.scrollWidth - tabs.clien
 tabs.addEventListener('scroll', tabFade, { passive: true }); addEventListener('resize', tabFade);
 tabs.addEventListener('click', e => {
   const b = e.target.closest('[data-tab]'); if (!b) return; let k = b.dataset.tab;
-  if (k === 'addText') { const { W, H } = dims(); const l = newTextLayer((visibleSlide() + .5) * W, H * .5); state.layers.push(l); ui.tab.text = 'text'; selectLayer(l.id); pushHistory(); setTimeout(() => $('#txtIn')?.select(), 50); return; }
+  if (k === 'addText') { const { W, H } = dims(); const l = newTextLayer((visibleSlide() + .5) * W, H * .5); if (brand().head) l.font = brand().head; state.layers.push(l); ui.tab.text = 'text'; selectLayer(l.id); pushHistory(); setTimeout(() => $('#txtIn')?.select(), 50); return; }
   if (mode() === 'image') { const g = IMG_GROUPS.find(x => x[0] === k); ui.sub = ui.sub || {}; k = ui.sub[k] || g[3][0]; }
   ui.tab[mode()] = k; ui.pick = false; renderTabs(); renderHead(); renderPanel(); updateTop(); requestRender();
 });
@@ -755,6 +755,9 @@ panel.addEventListener('input', e => {
     if (t.dataset.k.startsWith('c.') && l && l.crop.box) delete l.crop.box;
     requestRender();
   } else if (t.id === 'txtIn') { l.text = t.value; requestRender(); }
+  else if (t.id === 'qrIn') { l.qr.text = t.value.trim(); requestRender(); }
+  else if (t.id === 'chartIn') { l.chart.data = t.value; requestRender(); }
+  else if (t.id === 'chartUnit') { l.chart.unit = t.value; requestRender(); }
   else if (t.id === 'capIn') { l.caption = t.value; requestRender(); }
   else if (t.matches('input[type=color][data-col]')) { applyColor(t.dataset.col, t.value); requestRender(); }
 });
@@ -763,6 +766,10 @@ panel.addEventListener('input', e => { if (e.target.id !== 'tplSearch') return; 
 panel.addEventListener('toggle', e => { if (e.target.id === 'tplStyle') ui.tplStyleOpen = e.target.open; }, true);
 panel.addEventListener('change', e => {
   const t = e.target, l = selLayer();
+  if (t.id === 'brandColor') { const b = brand(); if (!b.colors.includes(t.value)) b.colors = [...b.colors, t.value].slice(-10); LS.set('brand', b); renderPanel(); toast('Markenfarbe gespeichert'); return; }
+  if (t.id === 'brandHead' || t.id === 'brandBody') { const b = brand(); b[t.id === 'brandHead' ? 'head' : 'body'] = t.value; LS.set('brand', b); toast('Markenschrift gespeichert'); return; }
+  if (t.id === 'logoIn') { const f = t.files[0]; t.value = ''; if (f) saveLogo(f); return; }
+  if (t.id === 'chartUnit') { pushHistory(); return; }
   if (t.id === 'projName') { ui.projectName = t.value.trim() || 'Mein Karussell'; scheduleSave(); return; }
   if (t.id === 'stampDate') { const [y, m, d] = t.value.split('-').map(Number); if (y) { const old = new Date(l.stampMs); l.stampMs = new Date(y, m - 1, d, old.getHours(), old.getMinutes()).getTime(); commit(); } return; }
   if (t.id === 'presetFile') { importPresets(t.files[0]); t.value = ''; return; }
@@ -783,11 +790,12 @@ function applyColor(target, v) {
   if (/^bg/.test(target) && state.tpl) state.tpl.bgLock = true;
   if (target.startsWith('tpl')) { state.tpl[{ tplFrame: 'frameColor', tplText: 'textColor', tplInk: 'ink' }[target]] = v; layout(false); return; }
   if (target === 'bg1') state.bg.c1 = v; else if (target === 'bg2') state.bg.c2 = v;
-  else if (target === 'frame') l.borderColor = v; else if (target === 'text') l.color = v; else if (target === 'textbg') { l.bgColor = v; l.bgSet = true; } else if (target === 'stroke') l.strokeColor = v; else if (target === 'fill') l.fill = v; else if (target === 'pin') l.pinColor = v; else if (target === 'bgx') { l.bgx = l.bgx || { mode: 'color' }; l.bgx.color = v; }
+  else if (target === 'frame') l.borderColor = v; else if (target === 'text') l.color = v; else if (target === 'textbg') { l.bgColor = v; l.bgSet = true; } else if (target === 'stroke') l.strokeColor = v; else if (target === 'fill') l.fill = v; else if (target === 'pin') l.pinColor = v; else if (target === 'fx') l.fxColor = v; else if (target === 'qrfg') l.qr.fg = v; else if (target === 'chartink') l.chart.ink = v; else if (target === 'chartcard') l.chart.cardColor = v;
+  else if (target === 'bgx') { l.bgx = l.bgx || { mode: 'color' }; l.bgx.color = v; }
 }
 const chip = (attrs, label, on) => `<button class="chip" ${attrs} aria-pressed="${!!on}">${label}</button>`;
 const sw = (target, c, on) => `<button class="sw" style="--c:${c}" data-col-set="${target}" data-v="${c}" aria-pressed="${!!on}" aria-label="Farbe ${c}"></button>`;
-const swatches = (target, list, cur) => `<div class="swatches">${(() => { const pal = photoPalette().filter(c => !list.includes(c)); return pal.length ? pal.map(c => sw(target, c, cur === c)).join('') + '<span class="sw-label">↑ aus deinen Fotos</span>' : ''; })()}${LS.get('recentColors', []).filter(c => !list.includes(c)).slice(0, 4).map(c => sw(target, c, cur === c).replace('class="sw"', 'class="sw recent"')).join('')}${list.map(c => sw(target, c, cur === c)).join('')}<input type="color" class="color-in" data-col="${target}" value="${/^#[0-9a-f]{6}$/i.test(cur) ? cur : '#ffffff'}" aria-label="Eigene Farbe"></div>`;
+const swatches = (target, list, cur) => `<div class="swatches">${brand().colors.map(c => sw(target, c, cur === c).replace('class="sw"', 'class="sw brand"')).join('')}${(() => { const pal = photoPalette().filter(c => !list.includes(c)); return pal.length ? pal.map(c => sw(target, c, cur === c)).join('') + '<span class="sw-label">↑ aus deinen Fotos</span>' : ''; })()}${LS.get('recentColors', []).filter(c => !list.includes(c)).slice(0, 4).map(c => sw(target, c, cur === c).replace('class="sw"', 'class="sw recent"')).join('')}${list.map(c => sw(target, c, cur === c)).join('')}<input type="color" class="color-in" data-col="${target}" value="${/^#[0-9a-f]{6}$/i.test(cur) ? cur : '#ffffff'}" aria-label="Eigene Farbe"></div>`;
 const toggle = (key, label, on) => `<div class="toggle"><span>${label}</span><button class="switch" role="switch" data-tog="${key}" aria-checked="${!!on}" aria-label="${label.replace(/<[^>]+>/g, '')}"></button></div>`;
 const group = (title, inner) => `<div class="group">${title ? `<span class="sec-label">${title}</span>` : ''}${inner}</div>`;
 const btn = (act, label, cls = 'ghost', extra = '') => `<button class="btn ${cls} small" data-act2="${act}" ${extra}>${label}</button>`;
@@ -832,7 +840,7 @@ function panelCanvas() {
   const f = state.format, i = visibleSlide() + 1;
   return `${ui.sample ? `<div class="callout"><span class="note"><b>Beispielprojekt</b> mit generiertem Motiv. Beim ersten eigenen Foto wird es ersetzt.</span></div>` : ''}
   <div class="row"><input class="name" id="projName" value="${esc(ui.projectName)}" maxlength="40" aria-label="Projektname"><button class="btn ghost small" data-act2="projects">Projekte</button><button class="btn ghost small" data-act2="help">? Hilfe</button></div>
-  ${group('Format', `<div class="chips">${Object.entries(FORMATS).map(([k, v]) => chip(`data-format="${k}"`, `${v.label}<small>${v.px}</small>`, f === k)).join('')}</div>`)}
+  ${group('Format · Größe ändern', `<div class="chips">${Object.entries(FORMATS).map(([k, v]) => chip(`data-format="${k}"`, `${v.label}<small>${v.px}</small>`, f === k)).join('')}</div>`)}
   ${group('Slides', `<div class="row"><div class="stepper"><button data-slides="-1" aria-label="Eine Slide weniger">−</button><span>${state.slides}</span><button data-slides="1" aria-label="Eine Slide mehr">+</button></div><span class="note">Instagram erlaubt bis zu 20 Bilder pro Post.</span></div>
     <div class="slide-strip" id="slideStrip">${Array.from({ length: state.slides }, (_, k) => `<button class="sthumb" data-goslide="${k}" aria-current="${k + 1 === i}" aria-label="Slide ${k + 1}"><canvas width="72" height="${Math.round(72 * dims().H / dims().W)}"></canvas><span>${k + 1}</span></button>`).join('')}</div>
     <div class="row"><span class="note">Slide ${i}:</span>${btn('slideLeft', '←')}${btn('slideRight', '→')}${btn('slideDup', 'Duplizieren')}${btn('slideInsert', '+ Leere danach')}${btn('slideDelete', 'Löschen', 'danger')}</div>`)}
@@ -840,8 +848,34 @@ function panelCanvas() {
   ${toggle('grad', 'Verlauf', state.bg.grad)}
   ${state.bg.grad ? `${swatches('bg2', BG_COLORS, state.bg.c2)}<div class="chips">${[['h', 'Waagerecht'], ['v', 'Senkrecht'], ['d', 'Diagonal']].map(([k, lb]) => chip(`data-bgdir="${k}"`, lb, (state.bg.dir || 'h') === k)).join('')}</div>` : ''}
   <span class="sec-label">Muster</span><div class="chips">${BG_PATTERNS.map(([k, lb]) => chip(`data-pattern="${k}"`, lb, (state.bg.pattern || 'none') === k)).join('')}</div>`)}
+  ${panelBrand()}
   ${toggle('grid', 'Drittel-Raster einblenden', ui.grid)}
   <div class="row">${btn('clear', ui.confirmClear ? 'Wirklich alles leeren?' : 'Neues leeres Projekt', 'danger')}${btn('sample', 'Beispiel laden')}</div>`;
+}
+/* ---------- Marken-Kit: eigene Farben, Schriften, Logo – überall griffbereit ---------- */
+const brand = () => LS.get('brand', { colors: [], head: '', body: '', logo: null });
+function panelBrand() {
+  const b = brand(), fopt = cur => `<option value="">– Vorgabe –</option>` + FONTS.map(([f, lb]) => `<option value="${f}"${cur === f ? ' selected' : ''}>${lb}</option>`).join('');
+  return group('Marken-Kit', `<span class="sec-label">Farben</span>
+    <div class="swatches">${b.colors.map(c => `<button class="sw" style="--c:${c}" data-brandrm="${c}" aria-label="Markenfarbe ${c} entfernen" title="Antippen zum Entfernen"></button>`).join('')}<input type="color" class="color-in" id="brandColor" value="#3f7fe0" aria-label="Markenfarbe hinzufügen"><span class="note">${b.colors.length ? 'Antippen entfernt eine Farbe' : '＋ Farbe hinzufügen'}</span></div>
+    <div class="row"><label class="note" for="brandHead">Überschrift</label><select class="name" id="brandHead">${fopt(b.head)}</select></div>
+    <div class="row"><label class="note" for="brandBody">Text</label><select class="name" id="brandBody">${fopt(b.body)}</select></div>
+    <span class="sec-label">Logo</span>
+    <div class="row">${b.logo ? `<img class="brand-logo" src="${b.logo}" alt="Logo">${btn('brandLogoUse', 'Einfügen', 'primary')}${btn('brandLogoDel', 'Entfernen', 'danger')}` : ''}<label class="btn ghost small" for="logoIn">${b.logo ? 'Ändern' : 'Logo wählen'}</label><input type="file" id="logoIn" accept="image/*" hidden></div>
+    <div class="row">${btn('brandApply', 'Marke auf alle Texte anwenden')}</div>
+    <p class="note">Markenfarben stehen in jeder Farbauswahl ganz vorn, Markenschriften in jeder Schriftliste. Bleibt für alle Projekte gespeichert.</p>`);
+}
+async function saveLogo(f) {
+  try { const bmp = await createImageBitmap(f), k = Math.min(1, 640 / Math.max(bmp.width, bmp.height)), c = mk(bmp.width * k, bmp.height * k); c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    const b = brand(); b.logo = c.toDataURL('image/png'); LS.set('brand', b); renderPanel(); toast('Logo gespeichert'); }
+  catch (e) { console.warn(e); toast('Das Logo konnte nicht gelesen werden'); }
+}
+async function insertLogo() {
+  const b = brand(); if (!b.logo) return; const blob = await (await fetch(b.logo)).blob(), before = new Set(state.layers.map(x => x.id));
+  await addFiles([new File([blob], 'logo.png', { type: 'image/png' })]);
+  const l = state.layers.find(x => !before.has(x.id) && x.type === 'image'); if (!l) return;
+  const { W, H } = dims(), i = visibleSlide(); l.w = W * .22; l.x = (i + 1) * W - W * .16; l.y = H - W * .12; l.shadow = false; l.border = 0; l.shape = 'rect';
+  ui.nextLabel = 'Logo eingefügt'; commit();
 }
 function drawSlideThumbs() {
   const { W, H } = dims();
@@ -940,17 +974,21 @@ function panelLayers() {
 }
 const EMOJI = ['☀️', '🌊', '❤️', '✨', '📍', '🌸', '🍂', '⭐', '🌙', '📷', '🎞️', '🍦', '🐚', '⛵', '🌿', '🔥', '🦋', '🌈', '💌', '🎉'];
 function panelElements() {
+  const b0 = brand();
   const el = ([k, lb]) => `<button class="el" data-addshape="${k}"><svg viewBox="0 0 40 40" aria-hidden="true">${shapeIcon(k)}</svg><span>${lb}</span></button>`;
   const rec = LS.get('recentEl', []).map(k => k.startsWith('e:') ? `<button class="emo" data-emoji="${k.slice(2)}">${k.slice(2)}</button>` : SHAPES.find(x => x[0] === k) ? el(SHAPES.find(x => x[0] === k)) : '').join('');
   return `${`<div class="paste-pad" contenteditable="true" inputmode="none" enterkeyhint="done" role="button" aria-label="Einfügen – antippen oder lange drücken und Einsetzen wählen">${IC.paste}<span>Einfügen<small>${ui.layerClip ? 'Kopiertes Element, Bild oder Text' : 'Bild oder Text aus anderen Apps'} · lange drücken → „Einsetzen“</small></span></div>`}
   ${rec ? group('Zuletzt benutzt', `<div class="el-grid recent">${rec}</div>`) : ''}
   ${group('Kritzeleien', `<div class="el-grid">${SHAPES.filter(([k]) => isDoodle(k)).map(el).join('')}</div>`)}
-  ${group('Formen & Sticker', `<div class="el-grid">${SHAPES.filter(([k]) => !isDoodle(k)).map(el).join('')}</div>`)}
+  ${group('Infografik', `<div class="el-grid">${SHAPES.filter(([k]) => k === 'qr' || k === 'chart').map(el).join('')}${b0.logo ? `<button class="el" data-act2="brandLogoUse"><img src="${b0.logo}" alt="" style="width:34px;height:34px;object-fit:contain"><span>Mein Logo</span></button>` : ''}</div>`)}
+  ${group('Formen & Sticker', `<div class="el-grid">${SHAPES.filter(([k]) => !isDoodle(k) && k !== 'qr' && k !== 'chart').map(el).join('')}</div>`)}
   ${group('Emoji', `<div class="emoji-row">${EMOJI.map(e => `<button class="emo" data-emoji="${e}">${e}</button>`).join('')}</div>`)}
   ${group('Text-Vorlagen', `<div class="chips">${TEXT_PRESETS.map(([k, lb]) => chip(`data-addtext="${k}"`, lb, false)).join('')}</div>`)}`;
 }
 function shapeIcon(k) {
   if (isDoodle(k)) return doodleSVG(k);
+  if (k === 'qr') return '<g fill="var(--accent)"><path d="M6 6h11v11H6zM9 9v5h5V9zM23 6h11v11H23zM26 9v5h5V9zM6 23h11v11H6zM9 26v5h5v-5z" fill-rule="evenodd"/><rect x="23" y="23" width="4" height="4"/><rect x="30" y="23" width="4" height="4"/><rect x="26.5" y="27" width="4" height="4"/><rect x="23" y="30" width="4" height="4"/><rect x="30" y="30" width="4" height="4"/></g>';
+  if (k === 'chart') return '<g fill="var(--accent)"><rect x="7" y="20" width="6" height="13" rx="1.5"/><rect x="17" y="11" width="6" height="22" rx="1.5"/><rect x="27" y="16" width="6" height="17" rx="1.5"/></g>';
   const f = 'fill="var(--accent)"';
   return { rect: `<rect x="6" y="9" width="28" height="22" ${f}/>`, round: `<rect x="6" y="9" width="28" height="22" rx="6" ${f}/>`, circle: `<circle cx="20" cy="20" r="13" ${f}/>`,
     frame: `<rect x="8" y="6" width="24" height="28" fill="none" stroke="var(--accent)" stroke-width="3"/>`, line: `<path d="M6 20h28" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/>`,
@@ -1142,21 +1180,45 @@ function panelText(l) {
   return `<textarea class="txt" id="txtIn" aria-label="Text" rows="2">${esc(l.text)}</textarea>
   <span class="note">Platzhalter: <b>{n}</b> Slide-Nummer · <b>{N}</b> Anzahl Slides · <b>{datum}</b> heute</span>
   ${swatches('text', TEXT_COLORS, l.color)}
-  <div class="chips scroll">${FONTS.map(([f, lb, wgt]) => `<button class="fontchip" data-font="${f}" aria-pressed="${l.font === f}"><span class="aa" style="font-family:'${f}';font-weight:${wgt}">Aa</span><span>${lb}</span></button>`).join('')}</div>
+  <div class="chips scroll">${brandFirst(FONTS).map(([f, lb, wgt]) => `<button class="fontchip${isBrandFont(f) ? ' brand' : ''}" data-font="${f}" aria-pressed="${l.font === f}"><span class="aa" style="font-family:'${f}';font-weight:${wgt}">Aa</span><span>${isBrandFont(f) ? '★ ' : ''}${lb}</span></button>`).join('')}</div>
   ${group('Schnell-Stile', `<div class="chips">${TEXT_PRESETS.map(([k, lb]) => chip(`data-tpreset="${k}"`, lb, false)).join('')}</div>`)}`;
 }
+const TEXT_FX = [['none', 'Ohne'], ['lift', 'Anheben'], ['hollow', 'Hohl'], ['splice', 'Spleißen'], ['echo', 'Echo'], ['hard', '3D'], ['neon', 'Neon'], ['glitch', 'Glitch']];
+const isBrandFont = f => { const b = brand(); return !!f && (b.head === f || b.body === f); };
+const brandFirst = list => [...list.filter(x => isBrandFont(x[0])), ...list.filter(x => !isBrandFont(x[0]))];
 const PIN_COLORS = ['#8a4bd8', '#e5484d', '#ff7eb6', '#ff9a2e', '#f2c14e', '#3fa36b', '#3f7fe0', '#111111', '#ffffff'];
 function panelTextStyle(l) {
   return group('Farbe', swatches('text', TEXT_COLORS, l.color)) + group('', slider('l.size', 'Größe', 16, 400, 1, 'px', 110) + slider('l.rot', 'Drehung', -180, 180, .5, 'deg') + slider('l.spacing', 'Laufweite', -10, 60, 1, 'n') + slider('l.lineH', 'Zeilenabstand', .8, 2, .02, 'lh', 1.16) + slider('l.sx', 'Breite (stauchen / strecken)', 20, 300, 1, 'pct', 100, 100) + slider('l.sy', 'Höhe (stauchen / strecken)', 20, 300, 1, 'pct', 100, 100) + slider('l.curve', 'Bogen', -100, 100, 1, 'signed', 0) + (l.curve && l.bg !== 'none' ? '<span class="note">Bogentext gibt es nur ohne Hinterlegung.</span>' : ''))
   + group('Ausrichtung', `<div class="chips">${[['left', 'Links'], ['center', 'Mitte'], ['right', 'Rechts']].map(([k, lb]) => chip(`data-align="${k}"`, lb, l.align === k)).join('')}</div>`)
   + group('Hinterlegung', `<div class="chips">${[['none', 'Keine'], ['solid', 'Fläche'], ['soft', 'Halbtransparent'], ['band', 'Zeilenband'], ['beads', 'Perlen'], ['ransom', 'Ausschnitte'], ['pin', 'Orts-Pille']].map(([k, lb]) => chip(`data-tbg="${k}"`, lb, l.bg === k)).join('')}</div>
     ${l.bg === 'pin' ? `<span class="sec-label">Pille</span>${swatches('textbg', TEXT_COLORS, l.bgColor)}<span class="sec-label">Stecknadel</span>${swatches('pin', PIN_COLORS, l.pinColor || '#8a4bd8')}` : l.bg !== 'none' ? swatches('textbg', TEXT_COLORS, l.bgColor) : ''}`)
+  + group('Effekt', `<div class="chips">${TEXT_FX.map(([k, lb]) => chip(`data-tfx="${k}"`, lb, (l.fx || 'none') === k)).join('')}</div>
+    ${l.fx && l.fx !== 'none' ? slider('l.fxAmt', 'Stärke', 0, 100, 1, 'n', 50) + (['splice', 'echo', 'hard', 'neon'].includes(l.fx) ? `<span class="sec-label">Effektfarbe</span>${swatches('fx', ['#ff3b6b', '#ff9a2e', '#f2c14e', '#3fe0c5', '#3f7fe0', '#b45cff', '#111111', '#ffffff'], l.fxColor || '#ff3b6b')}` : '') : ''}`)
   + group('Kontur', slider('l.stroke', 'Konturstärke', 0, 20, .5, 'n') + (l.stroke ? swatches('stroke', TEXT_COLORS, l.strokeColor) : ''))
   + toggle('upper', 'Großbuchstaben', l.upper) + toggle('glow', 'Leuchten (Neon)', l.glow) + (l.bg === 'none' ? toggle('tshadow', 'Schatten für Lesbarkeit', l.shadow) : '');
 }
+function panelQR(l) { const q = l.qr = l.qr || newShapeLayer('qr', 0, 0).qr;
+  return group('QR-Code', `<textarea class="txt" id="qrIn" rows="2" aria-label="Inhalt des QR-Codes" placeholder="Link, Text, Telefonnummer …">${esc(q.text)}</textarea>
+    <span class="note">Link zu Profil, Shop oder Speisekarte. Wird beim Scannen geöffnet.</span>`)
+    + group('Stil', `<div class="chips">${chip('data-qrstyle="square"', 'Klassisch', q.style !== 'dots')}${chip('data-qrstyle="dots"', 'Punkte', q.style === 'dots')}</div>
+      <span class="sec-label">Farbe</span>${swatches('qrfg', ['#111111', '#1d3557', '#7a1f3d', '#2d6a4f', '#ffffff'], q.fg)}
+      <span class="sec-label">Hintergrund</span><div class="chips">${chip('data-qrbg="#ffffff"', 'Weiß', q.bg === '#ffffff')}${chip('data-qrbg="#f6f1e7"', 'Creme', q.bg === '#f6f1e7')}${chip('data-qrbg="#111111"', 'Schwarz', q.bg === '#111111')}${chip('data-qrbg="none"', 'Keiner', q.bg === 'none')}</div>`)
+    + group('', slider('l.wprop', 'Größe', 120, 1600, 1, 'px') + slider('l.rot', 'Drehung', -180, 180, .5, 'deg')) + `<p class="note">Tipp: dunkel auf hell scannt am zuverlässigsten.</p>` + alignRow();
+}
+function panelChart(l) { const ch = l.chart = l.chart || newShapeLayer('chart', 0, 0).chart;
+  return group('Daten', `<textarea class="txt" id="chartIn" rows="5" aria-label="Daten, je Zeile Beschriftung und Wert">${esc(ch.data)}</textarea>
+    <span class="note">Je Zeile: Beschriftung und Zahl, z. B. „Kaffee 42“.</span>
+    <div class="row"><label class="note" for="chartUnit">Einheit</label><input class="name" id="chartUnit" maxlength="6" value="${esc(ch.unit || '')}" placeholder="z. B. %, €, km" style="max-width:120px"></div>`)
+    + group('Art', `<div class="chips">${[['bar', 'Säulen'], ['hbar', 'Balken'], ['pie', 'Torte'], ['donut', 'Ring'], ['line', 'Linie']].map(([k, lb]) => chip(`data-ctype="${k}"`, lb, ch.type === k)).join('')}</div>`)
+    + group('Farben', `<div class="chips">${chip('data-cpal="marke"', '★ Marke', ch.pal === 'marke')}${Object.keys(CHART_PALETTES).map(k => chip(`data-cpal="${k}"`, k[0].toUpperCase() + k.slice(1), ch.pal === k)).join('')}</div>
+      <span class="sec-label">Schrift</span>${swatches('chartink', ['#1d1d1d', '#ffffff', '#4a4a4a', '#7a1f3d'], ch.ink)}`)
+    + toggle('cvalues', 'Werte anzeigen', ch.values !== false) + toggle('ccard', 'Karte dahinter', !!ch.card) + (ch.card ? swatches('chartcard', ['#ffffff', '#f6f1e7', '#111111', '#1d3557', '#fde2e4'], ch.cardColor) : '')
+    + group('', slider('l.w', 'Breite', 200, 3000, 1, 'px') + slider('l.h', 'Höhe', 150, 3000, 1, 'px') + slider('l.rot', 'Drehung', -180, 180, .5, 'deg')) + alignRow();
+}
 const SHAPE_FAM = { basic: ['rect', 'round', 'circle', 'frame', 'line', 'arrow', 'star', 'heart', 'sparkle', 'blob', 'arch'], prop: ['tape', 'clip', 'binder', 'paper', 'lace', 'starSticker', 'leaves', 'check', 'spiral', 'laurel'] };
-const famOf = k => isDoodle(k) || /^(scribble|corners|scribbleArrow)$/.test(k) ? 'doodle' : SHAPE_FAM.prop.includes(k) ? 'prop' : 'basic';
+const famOf = k => k === 'qr' || k === 'chart' ? 'info' : isDoodle(k) || /^(scribble|corners|scribbleArrow)$/.test(k) ? 'doodle' : SHAPE_FAM.prop.includes(k) ? 'prop' : 'basic';
 function panelShape(l) {
+  if (l.kind === 'qr') return panelQR(l); if (l.kind === 'chart') return panelChart(l);
   const k = l.kind, fam = famOf(k), real = /^(tape|clip|binder)$/.test(k), doodle = fam === 'doodle';
   const canOutline = fam === 'basic' && !['line', 'arrow', 'frame'].includes(k);
   let h = group(fam === 'doodle' ? 'Kritzelei' : fam === 'prop' ? 'Requisite' : 'Form', `<div class="chips">${SHAPES.filter(([x]) => famOf(x) === fam).map(([x, lb]) => chip(`data-skind="${x}"`, lb, k === x)).join('')}</div>`);
@@ -1180,7 +1242,7 @@ panel.addEventListener('click', async e => {
   const rs = e.target.closest('[data-reset]'); if (rs) { const inp = rs.closest('.sl').querySelector('input'); inp.value = inp.dataset.def; inp.dispatchEvent(new Event('input', { bubbles: true })); flags.draft = false; pushHistory(); refreshAfterCommit(); requestRender(); return; }
   const fs = e.target.closest('[data-fillslot]'); if (fs) { ui.fillSlot = +fs.dataset.fillslot; return; }
   const t = e.target.closest('button'); if (!t || t.disabled) return; const l = selLayer(); const d = t.dataset;
-  if (d.format) { const oh = dims().H; state.format = d.format; const nh = dims().H; state.layers.forEach(x => x.y *= nh / oh); fit(); commit(); }
+  if (d.format) { magicResize(d.format); }
   else if (d.slides) { state.slides = clamp(state.slides + +d.slides, 1, 20); fit(); commit(); }
   else if (d.colSet) { applyColor(d.colSet, d.v); commit(); }
   else if (d.tog) {
@@ -1189,6 +1251,7 @@ panel.addEventListener('click', async e => {
     else if (k === 'stamp') l.params.stamp = on; else if (k === 'shadow' || k === 'tshadow') l.shadow = on; else if (k === 'upper') l.upper = on; else if (k === 'glow') l.glow = on;
     else if (k === 'outline') l.outline = on; else if (k === 'cutsmart') { ui.cutSmart = on; renderPanel(); return; } else if (k === 'cutrefine') l.cut.refine = on; else if (k === 'stickershadow') l.stickerShadow = on; else if (k === 'cutshow') { ui.cutShow = on; renderPanel(); requestRender(); return; }
     else if (k === 'dblin') l.dbl.inside = on;
+    else if (k === 'cvalues') l.chart.values = on; else if (k === 'ccard') l.chart.card = on;
     else if (k === 'cuton') l.cut.on = on; else if (k === 'sticker') { l.sticker = on; if (on && !(l.cut && l.cut.strokes.length)) toast('Male jetzt über das Motiv – nur das wird zum Sticker'); } else if (k === 'minv') l.params.masks[ui.maskSel].inv = on;
     commit();
   }
@@ -1244,6 +1307,12 @@ panel.addEventListener('click', async e => {
     else if (d.addtext === 'handle') { s.y = H * .94; selectLayer(s.id); pushHistory(); setTimeout(() => $('#txtIn')?.select(), 50); toast('Tipp: unter „Ebene“ → „Auf jede Slide kopieren“'); }
     else { selectLayer(s.id); pushHistory(); } }
   else if (d.pick) { selectLayer(+d.pick); }
+  else if (d.tfx) { l.fx = d.tfx; if (d.tfx === 'neon' && !l.fxColor) l.fxColor = '#3fe0c5'; commit(); }
+  else if (d.qrstyle) { l.qr.style = d.qrstyle; commit(); }
+  else if (d.qrbg) { l.qr.bg = d.qrbg; commit(); }
+  else if (d.ctype) { l.chart.type = d.ctype; commit(); }
+  else if (d.cpal) { l.chart.pal = d.cpal; if (d.cpal === 'marke') { const bc = brand().colors; l.chart.colors = bc.length ? bc.slice() : null; if (!bc.length) toast('Lege zuerst Markenfarben an (Leinwand → Marken-Kit)'); } else l.chart.colors = null; commit(); }
+  else if (d.brandrm) { const b = brand(); b.colors = b.colors.filter(c => c !== d.brandrm); LS.set('brand', b); renderPanel(); }
   else if (d.aimask) { addAiMask(l, d.aimask); }
   else if (d.clonemode) { ui.cloneMode = d.clonemode; if (d.clonemode === 'src') { ui.cloneSrc = null; ui.cloneOff = null; } renderPanel(); updateTop(); }
   else if (d.bgx) { if (d.bgx === 'clear') { l.sticker = true; l.bgx = { ...(l.bgx || {}), mode: 'none' }; } else { l.sticker = false; l.bgx = { ...(l.bgx || {}), mode: d.bgx }; if (d.bgx === 'photo' && !l.bgx.src) l.bgx.src = otherPhotos(l)[0]?.srcId; if (d.bgx === 'color' && !l.bgx.color) l.bgx.color = '#ffffff'; } commit(); }
@@ -1257,6 +1326,21 @@ panel.addEventListener('click', async e => {
   else if (d.lup || d.ldown) { const id = +(d.lup || d.ldown), i = state.layers.findIndex(y => y.id === id), j = i + (d.lup ? 1 : -1); if (j >= 0 && j < state.layers.length) { const [x] = state.layers.splice(i, 1); state.layers.splice(j, 0, x); } commit(); }
   else if (d.act2) action(d.act2, l);
 });
+/* Magic Resize: alles proportional ins neue Format übertragen; Fotos, die eine Slide füllten, füllen sie wieder */
+function magicResize(fmt) {
+  if (fmt === state.format) return; const o = dims(), filled = new Map();
+  for (const l of state.layers) if (l.type === 'image' && !l.slot && !l.pane) { const b = boxOf(l), i = Math.floor(l.x / o.W);
+    if (b.ow >= o.W * .97 && b.oh >= o.H * .97 && Math.abs(l.x - (i + .5) * o.W) < o.W * .05) filled.set(l, i); else if (b.ow >= o.W * state.slides * .97 && b.oh >= o.H * .97) filled.set(l, 'all'); }
+  state.format = fmt; const n = dims(), sx = n.W / o.W, sy = n.H / o.H, f = Math.min(sx, sy);
+  for (const l of state.layers) {
+    if (state.tpl && (l.tplKey || l.slot != null || l.dupOf)) continue;
+    l.x *= sx; l.y *= sy;
+    if (filled.has(l)) { const i = filled.get(l); i === 'all' ? coverAll(l) : coverSlide(l, i); continue; }
+    if (l.type === 'text') l.size *= f; else if (l.type === 'shape') { l.w *= f; l.h *= f; } else l.w *= f;
+  }
+  if (state.tpl) layout(false);
+  fit(); commit(); toast(`Größe geändert: ${n.label} · ${n.px}`, 'Rückgängig', undo);
+}
 function commit() { const l = selLayer(); if (l && l.tplKey && l.type === 'text') l.userEdited = true; pushHistory(); renderUI(); }
 function shiftSlide(i, dir) { // Inhalte von Slide i mit Nachbar tauschen
   const { W } = dims(), j = i + dir; if (j < 0 || j >= state.slides) return false;
@@ -1321,6 +1405,11 @@ function action(a, l) {
     case 'maskDel': P.masks.splice(ui.maskSel, 1); ui.maskSel = Math.max(0, ui.maskSel - 1); commit(); return;
     case 'maskDup': { const m = clone(P.masks[ui.maskSel]); m.x = clamp(m.x + .05); m.y = clamp(m.y + .05); P.masks.push(m); ui.maskSel = P.masks.length - 1; commit(); return; }
     case 'cutUndo': l.cut.strokes.pop(); commit(); return;
+    case 'brandLogoDel': { const b = brand(); b.logo = null; LS.set('brand', b); renderPanel(); return; }
+    case 'brandLogoUse': insertLogo(); return;
+    case 'brandApply': { const b = brand(); if (!b.head && !b.body) { toast('Wähle zuerst Markenschriften'); return; } let n = 0;
+      for (const x of state.layers) if (x.type === 'text') { const f = x.size >= 90 ? (b.head || b.body) : (b.body || b.head); if (f) { x.font = f; x.userEdited = true; n++; } }
+      commit(); toast(`Marke auf ${n} Text${n === 1 ? '' : 'e'} angewendet`, 'Rückgängig', undo); return; }
     case 'lassoMask': ui.lasso = !ui.lasso; renderPanel(); updateTop(); if (ui.lasso) toast('Umfahre den Bereich mit dem Finger'); return;
     case 'eraseUndo': P.erase.pop(); commit(); return;
     case 'eraseClear': P.erase = []; commit(); toast('Alle Entfernungen zurückgenommen', 'Rückgängig', undo); return;
@@ -1600,7 +1689,7 @@ document.addEventListener('keydown', e => {
 });
 let keyT;
 /* ---------- Kopieren & Einfügen ---------- */
-const VERSION = 35;
+const VERSION = 36;
 const CLIP_MARK = 'streifzug-ebene:';
 function copyLayer(l) {
   ui.layerClip = clone(l); LS.set('layerClip', ui.layerClip); haptic();

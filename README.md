@@ -18,6 +18,11 @@ Außerdem: Projekte werden automatisch im Browser gespeichert (IndexedDB), die A
 - **Auswahl:** Himmel (Bildanalyse), Person/Haut (MediaPipe Selfie Multiclass), Motiv (Magic Touch), Lasso.
 - **Hintergrund ersetzen**, **Hautglättung**, **Kopierstempel**, **Verlauf**, Kreativ-Filter (Tonaler Kontrast, Drama, Grunge, Glitch, Doppelbelichtung).
 
+## Design-Werkzeuge (wie Canva, ohne Server)
+
+- Formate Instagram 4:5/1:1/3:4, Story, Pinterest 2:3, Quer 16:9, A4 – Formatwechsel skaliert alles mit („Magic Resize“).
+- Marken-Kit (Farben, Schriften, Logo; lokal gespeichert), Text-Effekte, QR-Codes (`public/vendor/qrcode`, MIT), Diagramme.
+
 ## Bedienung in Kürze
 
 - Unten wählst du die Werkzeug-Gruppe, darüber die Unterreiter (z. B. Licht → Schnell / Licht & Histogramm / Kurve).
