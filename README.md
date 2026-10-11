@@ -41,8 +41,20 @@ Kein Build-Schritt – reine ES-Module in `public/`:
 - `js/props.js` – Klebeband, Klammern und Kritzeleien
 - `js/segment.js` – Motiv-Erkennung zum Freistellen (lädt `vendor/mediapipe/`, Apache-2.0)
 - `js/store.js` – Projekte speichern
-- `js/main.js` – Oberfläche, Gesten, Werkzeuge, Export
+- `js/main.js` – Bühne, Gesten, Kontextmenü, Verlauf, KI-Aufrufe, Projekte, Export, Einfügen
+- `js/panels.js` – alle Bedienfelder des Werkzeugfelds und die Regler-Helfer
+- `js/ui.js` – Symbole und Gruppen der Foto-Werkzeuge
+- `js/ai.js` – Objekt entfernen (MI-GAN) und Himmel-Erkennung
+- `js/procworker.js`, `js/pool.js` – Hintergrund-Rechner (Web Worker) für Bearbeitung und Entfernen, mit Rückfall aufs Hauptfenster
 - `sw.js`, `manifest.webmanifest`, `icons/` – Home-Bildschirm & offline
+
+## Tests
+
+```sh
+cd tests && npm install && npx playwright install chromium && npm test
+```
+
+Klickt alle Bedienfelder durch und prüft Export, Hintergrund-Rechner, Einfügen und Werkzeugsuche. Läuft bei jedem Push als GitHub-Action (`.github/workflows/tests.yml`).
 
 ## Lokal ansehen
 
