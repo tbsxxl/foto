@@ -1304,6 +1304,8 @@ function setAppHeight() {
   const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
   if (standalone && screen.height) { const portrait = innerHeight >= innerWidth; h = Math.max(h, portrait ? Math.max(screen.height, screen.width) : Math.min(screen.height, screen.width)); }
   document.documentElement.style.setProperty('--app-h', Math.round(h) + 'px');
+  // iOS-Homescreen-App: das Layout-Fenster endet oft um die Statusleisten-Höhe zu früh – dann auf volle Bildschirmhöhe strecken
+  document.documentElement.classList.toggle('pwa-full', !!standalone && h > innerHeight + 1);
 }
 setAppHeight();
 addEventListener('resize', setAppHeight); addEventListener('orientationchange', () => setTimeout(setAppHeight, 300));
