@@ -401,7 +401,7 @@ html,body{background:var(--bg)}
 .tabs{border-top:.5px solid var(--sep);background:rgba(28,28,30,.94);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);padding-top:3px}
 .tab{min-height:48px;gap:2px;padding:5px 4px 4px;font-size:10.5px;font-weight:500;letter-spacing:0;color:#8e8e93;border-radius:10px}
 .tab svg{width:25px;height:25px;opacity:1;color:#8e8e93}
-.tab.add svg{color:#8e8e93;opacity:1}
+.tab.add,.tab.add svg{color:#8e8e93;opacity:1}
 .tab[aria-selected="true"]{background:none;color:var(--accent)}
 .tab[aria-selected="true"] svg{color:var(--accent)}
 .tab:active{transform:scale(.9);opacity:.7}
@@ -559,3 +559,9 @@ input[type=range]:active::-webkit-slider-thumb{transform:scale(1.1)}
 .wl-go{width:100%;height:52px;border-radius:14px;justify-content:center;font-size:17px}
 .wl-look{height:44px;color:var(--accent);font-size:17px;font-weight:500}
 .ctx-item.hover{background:rgba(255,255,255,.12)}
+/* echte Vorlagen-Vorschauen */
+.tpl canvas.real,.var canvas.real{width:100%;height:auto;display:block;border-radius:6px;animation:fadeIn .3s var(--ease)}
+.var canvas.real{outline:2px solid transparent;outline-offset:2px}
+.var[aria-pressed="true"] canvas.real{outline-color:var(--accent)}
+
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}

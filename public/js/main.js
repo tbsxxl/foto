@@ -431,6 +431,7 @@ async function runSegment(l, u, v, mode) {
 }
 cutHooks.onReady = () => requestRender();
 function selectLayer(id) {
+  { const l = state.layers.find(x => x.id === id), sr = $('#srLive'); if (sr) sr.textContent = l ? layerName(l) + ' ausgewählt' : ''; }
   if (id != null && id !== ui.sel) haptic();
   if (ui.sel && ui.sel !== id) releaseAux(selLayer());
   ui.sel = id; ui.pick = false; ui.maskSel = 0; renderUI();
@@ -680,6 +681,7 @@ function renderPanel() {
   if (!same) { panel.classList.remove('enter'); void panel.offsetWidth; panel.classList.add('enter'); }
   panel.querySelectorAll('input[type=range]').forEach(paintFill);
   if (m === 'none' && t === 'canvas') drawSlideThumbs();
+  if (m === 'none' && t === 'vorlagen') realTplPreviews();
   if (m === 'image') { if (t === 'looks') fillThumbs(); if (t === 'licht') { flags.histDirty = true; requestRender(); } if (t === 'kurve') setupCurve(); }
 }
 function panelCanvas() {
@@ -735,6 +737,45 @@ function panelTemplates() {
   ${!list.length ? `<p class="note">${cat === 'fav' ? 'Noch keine Favoriten – wähle eine Vorlage und tippe auf den Stern.' : 'Noch keine zuletzt benutzten Vorlagen.'}</p>` : ''}
   <div class="tpl-grid">${list.map(T => { const on = t && t.kind === T.id, hay = (T.name + ' ' + T.desc + ' ' + T.vars.join(' ') + ' ' + T.id + ' ' + (TPL_CATS.find(c => c[0] === T.cat) || ['', ''])[1] + ' ' + (TPL_TAGS[T.id] || '')).toLowerCase();
     return `<button class="tpl${on ? ' on' : ''}" data-tpl="${T.id}" data-q="${esc(hay)}"${q && !hay.includes(q) ? ' hidden' : ''}>${tplSVG(T.id, on ? t.v : 0)}<b>${favs.includes(T.id) ? '★ ' : ''}${T.name}</b><span>${T.vars.length} Variante${T.vars.length === 1 ? '' : 'n'} · ${T.desc}</span></button>`; }).join('')}</div>`;
+}
+/* ---------- Echte Vorschauen der Vorlagen – mit den eigenen Fotos, im Hintergrund nacheinander gerechnet ---------- */
+const tplThumbs = new Map(); let tplQueue = [], tplTimer = 0, tplIO = null;
+const procOf = l => { const c = cache.get(cacheKey(l)); return c && c.proc; };
+function tplSig() { return state.format + '|' + state.layers.filter(l => l.type === 'image' && l.srcId && !l.dupOf).map(l => l.srcId + ':' + (l.rot90 || 0) + (l.flip ? 'f' : '') + ':' + (l.params.look || '')).join(',') + '|' + JSON.stringify(state.tpl ? TPL_STYLE_KEYS.map(k => state.tpl[k]) : []); }
+function renderTplThumb(id, v) {
+  const saved = { tpl: state.tpl, layers: state.layers, slides: state.slides, bg: state.bg, n: ids.n }, bySrc = new Map();
+  for (const l of saved.layers) if (l.type === 'image' && l.srcId) { const p = procOf(l); if (p) bySrc.set(l.srcId + '|' + (l.rot90 || 0) + (l.flip ? 'f' : ''), p); }
+  try {
+    state.layers = clone(saved.layers); state.bg = clone(saved.bg); state.tpl = saved.tpl ? clone(saved.tpl) : null;
+    applyTemplate(id, v);
+    const { W, H } = dims(), n = Math.min(state.slides, 3), th = 168, s = th / H, c = document.createElement('canvas');
+    c.width = Math.round(W * n * s); c.height = th; const x = c.getContext('2d'); x.scale(s, s);
+    const procs = new Map(); for (const l of state.layers) if (l.type === 'image' && l.srcId) { const p = bySrc.get(l.srcId + '|' + (l.rot90 || 0) + (l.flip ? 'f' : '')); if (p) procs.set(cacheKey(l), p); }
+    drawScene(x, { procs, ph: true }); return c;
+  } finally { state.tpl = saved.tpl; state.layers = saved.layers; state.slides = saved.slides; state.bg = saved.bg; ids.n = saved.n; }
+}
+function pumpTplThumbs() {
+  clearTimeout(tplTimer); if (!tplQueue.length) return;
+  tplTimer = setTimeout(() => {
+    if (ptrs.size) { pumpTplThumbs(); return; } // nicht während einer Geste rechnen
+    const el = tplQueue.shift(); if (el && el.isConnected && !el.querySelector('canvas.real')) {
+      const key = el.dataset.tk; let c = tplThumbs.get(key);
+      if (!c) { try { c = renderTplThumb(el.dataset.tid, +el.dataset.tv); } catch (err) { console.warn(err); c = null; } if (c) { tplThumbs.set(key, c); if (tplThumbs.size > 160) tplThumbs.delete(tplThumbs.keys().next().value); } }
+      if (c) { const cp = document.createElement('canvas'); cp.width = c.width; cp.height = c.height; cp.className = 'real'; cp.getContext('2d').drawImage(c, 0, 0); const svg = el.querySelector('svg'); if (svg) svg.replaceWith(cp); }
+    }
+    pumpTplThumbs();
+  }, 24);
+}
+function realTplPreviews() {
+  if (!state.layers.some(l => l.type === 'image' && l.srcId && procOf(l))) return;
+  const sig = tplSig(); tplQueue = []; if (tplIO) tplIO.disconnect();
+  tplIO = new IntersectionObserver(es => { for (const e of es) if (e.isIntersecting) { tplIO.unobserve(e.target); tplQueue.push(e.target); } pumpTplThumbs(); }, { root: panel, rootMargin: '200px' });
+  panel.querySelectorAll('[data-tpl],[data-tplvar]').forEach(b => {
+    const id = b.dataset.tpl || state.tpl?.kind, v = b.dataset.tpl ? (state.tpl && state.tpl.kind === id ? state.tpl.v : 0) : +b.dataset.tplvar; if (!id) return;
+    b.dataset.tid = id; b.dataset.tv = v; b.dataset.tk = id + '|' + v + '|' + sig;
+    const c = tplThumbs.get(b.dataset.tk); if (c) { const cp = document.createElement('canvas'); cp.width = c.width; cp.height = c.height; cp.className = 'real'; cp.getContext('2d').drawImage(c, 0, 0); b.querySelector('svg')?.replaceWith(cp); }
+    else tplIO.observe(b);
+  });
 }
 function panelSlot(l) {
   return `<p class="note">Ein leeres Feld der Vorlage. Setze ein Foto ein – mehrere ausgewählte Fotos füllen die nächsten leeren Felder.</p>
@@ -1357,7 +1398,7 @@ document.addEventListener('keydown', e => {
 });
 let keyT;
 /* ---------- Kopieren & Einfügen ---------- */
-const VERSION = 32;
+const VERSION = 33;
 const CLIP_MARK = 'streifzug-ebene:';
 function copyLayer(l) {
   ui.layerClip = clone(l); LS.set('layerClip', ui.layerClip); haptic();

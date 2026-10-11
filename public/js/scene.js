@@ -321,7 +321,7 @@ function drawImageLayer(c, l, opts) {
   const bx = boxOf(l);
   let img = null;
   const { ow, oh, bb, w, h, iy } = bx, framed = FRAMES.has(l.shape), clip = framed ? 'rect' : l.shape;
-  if (!l.srcId) { if (!opts.procs && !opts.clean) drawPlaceholder(c, l, bx, clip, framed); return; }
+  if (!l.srcId) { if ((!opts.procs && !opts.clean) || opts.ph) drawPlaceholder(c, l, bx, clip, framed); return; }
   if (opts.procs) img = opts.procs.get(cacheKey(l));
   else { const ch = ensureCache(l); if (ch) img = ui.showOrig && l.id === ui.sel ? ch.orient : ch.proc; }
   if (l.sticker && img && hasCut(l)) { drawSticker(c, l, bx, img); return; }
