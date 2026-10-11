@@ -453,7 +453,7 @@ cv.addEventListener('pointermove', e => {
   if (Math.abs(p.sx - prev.sx) + Math.abs(p.sy - prev.sy) > 0) gest.moved = gest.moved || Math.hypot(p.sx - (gest.sx ?? prev.sx), p.sy - (gest.sy ?? prev.sy)) > (gest.mode === 'aiTap' ? 8 : 3) || (gest.mode !== 'pan' && gest.mode !== 'aiTap');
   const m = gest.mode;
   if (m === 'move') { if (gest.l.locked) return; const [nx, ny] = snapMove(gest.l, p.x - gest.dx, p.y - gest.dy); gest.l.x = nx; gest.l.y = ny;
-    if (swappable(gest.l)) { const t = swapTarget(gest.l, p); gest.target = t; ui.dropId = t ? t.id : null; } }
+    if (swappable(gest.l)) dwellSwap(gest, p); }
   else if (m === 'edge') { const g = gest, l = g.l, a = (l.rot || 0) * Math.PI / 180, ux = Math.cos(a), uy = Math.sin(a), dx = p.x - g.p0.x, dy = p.y - g.p0.y;
     const horiz = g.side === 'l' || g.side === 'r', proj = horiz ? dx * ux + dy * uy : -dx * uy + dy * ux, sign = g.side === 'r' || g.side === 'b' ? 1 : -1;
     const full = horiz ? g.ow0 : g.oh0, d = Math.max(-full + 30, sign * proj), shift = sign * d / 2;
@@ -484,8 +484,19 @@ cv.addEventListener('pointermove', e => {
   }
   requestRender();
 });
+/* Tauschen wie auf dem Home-Bildschirm: Foto kurz still über einem anderen halten → es rastet ein (Haptik), Loslassen tauscht.
+   Einfach drüberziehen verschiebt nur – Fotos dürfen sich überlappen. */
+function dwellSwap(g, p) {
+  const t = swapTarget(g.l, p);
+  if (t !== g.hoverT) { g.hoverT = t; g.dwell = { sx: p.sx, sy: p.sy }; clearTimeout(g.armT); if (g.target) { g.target = null; ui.dropId = null; } if (t) armSwap(g, t); else hideHud(); return; }
+  if (t && !g.target && Math.hypot(p.sx - g.dwell.sx, p.sy - g.dwell.sy) > 14) { g.dwell = { sx: p.sx, sy: p.sy }; clearTimeout(g.armT); armSwap(g, t); } // noch in Bewegung: Zeit neu starten
+}
+function armSwap(g, t) {
+  hud.textContent = 'Kurz halten zum Tauschen'; hud.hidden = false;
+  g.armT = setTimeout(() => { if (gest !== g || g.hoverT !== t) return; g.target = t; ui.dropId = t.id; haptic(); hud.textContent = 'Loslassen zum Tauschen'; requestRender(); }, 520);
+}
 function endPtr(e) {
-  if (!ptrs.has(e.pointerId)) return; ptrs.delete(e.pointerId); clearTimeout(lpT); hideHud();
+  if (!ptrs.has(e.pointerId)) return; ptrs.delete(e.pointerId); clearTimeout(lpT); hideHud(); if (gest && gest.armT) clearTimeout(gest.armT);
   if (lpMenu && lpMenu.held) { const it = e.type === 'pointerup' && ctxAt(e); lpMenu = { until: performance.now() + 450 }; multiTap = null; if (it) it.click(); return; }
   if (!ptrs.size && multiTap) { const mt = multiTap; multiTap = null; if (mt.n >= 2 && !mt.moved && performance.now() - mt.t < 350 && e.type === 'pointerup') { gest = null; ui.guides = []; haptic(); if (mt.n === 2) { undo(); toast('Rückgängig'); } else { redo(); toast('Wiederholt'); } return; } }
   if (ptrs.size > 0) { if (gest && /^pinch(Layer|Crop|Pin)$/.test(gest.mode)) gest = { mode: 'none', l: gest.l, moved: true }; return; }
@@ -1282,7 +1293,7 @@ document.addEventListener('keydown', e => {
 });
 let keyT;
 /* ---------- Kopieren & Einfügen ---------- */
-const VERSION = 40;
+const VERSION = 41;
 const CLIP_MARK = 'streifzug-ebene:';
 function copyLayer(l) {
   ui.layerClip = clone(l); LS.set('layerClip', ui.layerClip); haptic();
