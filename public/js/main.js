@@ -959,8 +959,8 @@ function action(a, l) {
     case 'curveFade': P.curves[ui.curveCh] = [.08, .27, .5, .74, .95]; commit(); return;
     case 'gradeReset': P.grade = defParams().grade; commit(); return;
     case 'pick': ui.pick = !ui.pick; renderPanel(); updateTop(); return;
-    case 'rot90': { const a0 = cropAspect(l), h0 = l.w / a0; l.rot90 = (l.rot90 + 1) % 4; if (l.crop.ratio === 'orig') l.w = h0; resetGeoEdits(l); commit(); return; }
-    case 'flip': l.flip = !l.flip; resetGeoEdits(l); commit(); return;
+    case 'rot90': { cache.delete(cacheKey(l)); const a0 = cropAspect(l), h0 = l.w / a0; l.rot90 = (l.rot90 + 1) % 4; if (l.crop.ratio === 'orig') l.w = h0; resetGeoEdits(l); commit(); return; }
+    case 'flip': cache.delete(cacheKey(l)); l.flip = !l.flip; resetGeoEdits(l); commit(); return;
     case 'toAll': { const i = clamp(Math.floor(l.x / W), 0, state.slides - 1), copies = [];
       for (let k = 0; k < state.slides; k++) if (k !== i) { const c = unlinked(clone(l)); c.id = newId(); c.x += (k - i) * W; copies.push(c); }
       state.layers.splice(state.layers.indexOf(l) + 1, 0, ...copies); commit(); toast(`Auf ${copies.length} weitere Slide${copies.length === 1 ? '' : 's'} kopiert`, 'Rückgängig', undo); return; }

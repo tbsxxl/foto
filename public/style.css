@@ -277,9 +277,9 @@ input[type=range]{height:32px}
 @media (max-width:420px){ #helpBtn{display:none} }
 
 
-/* Volle Höhe auf dem iPhone: fest am Fenster verankert, Höhe per JS gemessen (--app-h) */
+/* Volle Höhe auf dem iPhone: oben und unten am sichtbaren Fenster verankert (folgt den Safari-Leisten automatisch) */
 html,body{background:var(--surface)}
-#app{position:fixed;left:0;right:0;top:0;height:var(--app-h,100dvh);padding-top:env(safe-area-inset-top,0px);box-sizing:border-box;background:var(--bg)}
+#app{position:fixed;left:0;right:0;top:0;bottom:0;height:auto;padding-top:env(safe-area-inset-top,0px);box-sizing:border-box;background:var(--bg)}
 .dock{max-height:none}
 /* Stil anpassen, Suche, Ausrichten, zuletzt benutzt */
 details.more{border-top:1px solid var(--line);padding-top:8px}

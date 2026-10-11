@@ -285,7 +285,7 @@ function drawCut(c, l, opts) {
   c.restore();
 }
 /* verknüpfte Fenster eines Fotos teilen sich die Berechnung */
-export const cacheKey = l => l.grp ? 'g:' + l.grp : 'd:' + (l.dupOf || l.id); // Wiederholungen eines Fotos teilen sich die Berechnung
+export const cacheKey = l => (l.grp ? 'g:' + l.grp : 'd:' + (l.dupOf || l.id)) + (l.rot90 || l.flip ? '|' + (l.rot90 || 0) + (l.flip ? 'f' : '') : ''); // unterschiedlich gedrehte Kopien nie im selben Cache // Wiederholungen eines Fotos teilen sich die Berechnung
 export function ensureCache(l) {
   const ck = cacheKey(l); let c = cache.get(ck); if (!c) { c = {}; cache.set(ck, c); }
   const src = sources.get(l.srcId); if (!src || !src.base) return null;

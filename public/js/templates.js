@@ -921,7 +921,7 @@ export function relink(prefer) {
     const m = masters.get(key);
     if (!m || l.id === prefer) masters.set(key, l);
   }
-  for (const l of state.layers) if (l.type === 'image' && l.srcId) { const m = masters.get(l.grp || (l.dupOf ? 'id' + l.dupOf : 'id' + l.id)); if (m && m !== l) { l.params = m.params; l.stampMs = m.stampMs; l.srcId = m.srcId; } }
+  for (const l of state.layers) if (l.type === 'image' && l.srcId) { const m = masters.get(l.grp || (l.dupOf ? 'id' + l.dupOf : 'id' + l.id)); if (m && m !== l) { l.params = m.params; l.stampMs = m.stampMs; l.srcId = m.srcId; l.rot90 = m.rot90; l.flip = m.flip; } }
 }
 export function shufflePhotos() {
   const ph = orderedPhotos(), r = seeded(Date.now() & 0xffff), slots = ph.map(p => p.slot ?? 0);
