@@ -281,7 +281,7 @@ input[type=range]{height:32px}
 html,body{background:var(--surface)}
 #app{position:fixed;left:0;right:0;top:0;bottom:0;height:auto;padding-top:env(safe-area-inset-top,0px);box-sizing:border-box;background:var(--bg)}
 .dock{max-height:none}
-html.pwa-full #app{bottom:auto;height:var(--app-h)}
+html.pwa-short .tabs{padding-bottom:6px}
 /* Stil anpassen, Suche, Ausrichten, zuletzt benutzt */
 details.more{border-top:1px solid var(--line);padding-top:8px}
 details.more>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;font-weight:600;min-height:40px}

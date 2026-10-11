@@ -1169,7 +1169,7 @@ function openHelp() {
   $('#helpSheet').hidden = false;
   // kleine Technik-Zeile, hilft bei Darstellungsproblemen auf dem iPhone
   const pr = document.createElement('div'); pr.style.cssText = 'position:fixed;bottom:0;height:env(safe-area-inset-bottom,0px)'; document.body.append(pr);
-  const a = $('#app').getBoundingClientRect(); $('#diag').textContent = `Version ${VERSION} · Fenster ${innerWidth}×${innerHeight} · Bildschirm ${screen.width}×${screen.height} · App bis ${Math.round(a.bottom)} · unten frei ${pr.offsetHeight} · ${navigator.standalone ? 'Home-Bildschirm' : 'Browser'}${document.documentElement.classList.contains('pwa-full') ? ' · gestreckt' : ''}`; pr.remove();
+  const a = $('#app').getBoundingClientRect(); $('#diag').textContent = `Version ${VERSION} · Fenster ${innerWidth}×${innerHeight} · Bildschirm ${screen.width}×${screen.height} · App bis ${Math.round(a.bottom)} · unten frei ${pr.offsetHeight} · ${navigator.standalone ? 'Home-Bildschirm' : 'Browser'}${document.documentElement.classList.contains('pwa-short') ? ' · kurz' : ''}`; pr.remove();
 }
 $('#closeHelp').addEventListener('click', () => $('#helpSheet').hidden = true);
 
@@ -1262,7 +1262,7 @@ document.addEventListener('keydown', e => {
 });
 let keyT;
 /* ---------- Kopieren & Einfügen ---------- */
-const VERSION = 30;
+const VERSION = 31;
 const CLIP_MARK = 'streifzug-ebene:';
 function copyLayer(l) {
   ui.layerClip = clone(l); LS.set('layerClip', ui.layerClip); haptic();
@@ -1328,8 +1328,10 @@ function setAppHeight() {
   const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
   if (standalone && screen.height) { const portrait = innerHeight >= innerWidth; h = Math.max(h, portrait ? Math.max(screen.height, screen.width) : Math.min(screen.height, screen.width)); }
   document.documentElement.style.setProperty('--app-h', Math.round(h) + 'px');
-  // iOS-Homescreen-App: das Layout-Fenster endet oft um die Statusleisten-Höhe zu früh – dann auf volle Bildschirmhöhe strecken
-  document.documentElement.classList.toggle('pwa-full', !!standalone && h > innerHeight + 1);
+  // iOS-Homescreen-App-Fehler: das Fenster endet um die Statusleisten-Höhe zu früh, darunter zeichnet iOS nichts.
+  // Strecken geht nicht (wird abgeschnitten) – stattdessen den Abstand für den Home-Balken weglassen, der liegt dann ohnehin im toten Streifen.
+  const short = standalone && Math.max(screen.height, screen.width) - innerHeight > 30 && innerHeight >= innerWidth;
+  document.documentElement.classList.toggle('pwa-short', !!short);
 }
 setAppHeight();
 addEventListener('resize', setAppHeight); addEventListener('orientationchange', () => setTimeout(setAppHeight, 300));

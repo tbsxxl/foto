@@ -1,5 +1,5 @@
 /* Offline-Fähigkeit: App-Dateien zuerst aus dem Netz (damit Updates sofort ankommen), sonst aus dem Cache */
-const CACHE = 'streifzug-v30', MODELS = 'streifzug-models-1';
+const CACHE = 'streifzug-v31', MODELS = 'streifzug-models-1';
 const SHELL = ['./', 'index.html', 'style.css', 'manifest.webmanifest', 'js/main.js', 'js/core.js', 'js/process.js', 'js/scene.js', 'js/layers.js', 'js/templates.js', 'js/store.js', 'js/props.js', 'js/segment.js', 'icons/icon.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE && k !== MODELS).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
