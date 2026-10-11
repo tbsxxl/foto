@@ -1,6 +1,6 @@
 /* Ebenen, Quellen, Zeichnen der Szene */
 import { clamp, seeded, state, ui, sources, cache, dims, FONTS, stampText } from './core.js';
-import { mk, makeAux, processImage, prepare, cutout, shrink, cutHooks } from './process.js';
+import { mk, makeAux, processImage, prepare, cutout, shrink, cutHooks, pendingAssets, blurCanvas } from './process.js';
 import { drawTapeReal, drawClipReal, drawBinderReal, drawDoodle, isDoodle, DOODLE_LIST } from './props.js';
 
 export const flags = { fontsTick: 0, histDirty: false, throttle: 0, pending: false, draft: false };
@@ -291,14 +291,17 @@ function drawCut(c, l, opts) {
 }
 /* verknüpfte Fenster eines Fotos teilen sich die Berechnung */
 export const cacheKey = l => (l.grp ? 'g:' + l.grp : 'd:' + (l.dupOf || l.id)) + (l.rot90 || l.flip ? '|' + (l.rot90 || 0) + (l.flip ? 'f' : '') : ''); // unterschiedlich gedrehte Kopien nie im selben Cache // Wiederholungen eines Fotos teilen sich die Berechnung
+/* Schlüssel für die Bearbeitung – lange Daten (Masken, Patches) nur über Länge und Ende, das hält ihn klein */
+export const paramKey = p => JSON.stringify(p, (k, v) => typeof v === 'string' && v.length > 200 ? '#' + v.length + v.slice(-32) : v);
 export function ensureCache(l) {
   const ck = cacheKey(l); let c = cache.get(ck); if (!c) { c = {}; cache.set(ck, c); }
   const src = sources.get(l.srcId); if (!src || !src.base) return null;
   const ok = l.srcId + '|' + l.rot90 + '|' + (l.flip ? 1 : 0);
   if (c.orientKey !== ok) { c.orient = orientCanvas(src.base, l.rot90, l.flip); c.orientKey = ok; c.prepKey = null; c.thumbAux = null; c.thumbs = {}; }
-  const prk = JSON.stringify(l.params.persp) + JSON.stringify(l.params.heal);
+  const P = l.params, pend = pendingAssets(P);
+  const prk = JSON.stringify(P.persp) + JSON.stringify(P.heal) + JSON.stringify(P.clone || []) + (P.erase || []).map(e => e.d.length + ':' + e.x.toFixed(4) + e.y.toFixed(4)).join() + '|' + pend;
   if (c.prepKey !== prk) { c.prep = prepare(c.orient, l.params); c.prepKey = prk; c.aux = null; c.procKey = null; c.draftAux = null; c.draftKey = null; }
-  const pk = JSON.stringify(l.params) + '|' + l.stampMs + '|' + flags.fontsTick;
+  const pk = paramKey(P) + '|' + l.stampMs + '|' + flags.fontsTick + '|' + pend;
   // Beim Ziehen eines Reglers: schnelle Vorschau in kleiner Auflösung, volle Qualität beim Loslassen
   const selL = flags.draft && state.layers.find(x => x.id === ui.sel);
   if (selL && cacheKey(selL) === ck && c.procKey !== pk) {
@@ -325,6 +328,7 @@ function drawImageLayer(c, l, opts) {
   if (opts.procs) img = opts.procs.get(cacheKey(l));
   else { const ch = ensureCache(l); if (ch) img = ui.showOrig && l.id === ui.sel ? ch.orient : ch.proc; }
   if (l.sticker && img && hasCut(l)) { drawSticker(c, l, bx, img); return; }
+  if (img && !(ui.showOrig && l.id === ui.sel && !opts.procs) && ((l.bgx && l.bgx.mode && l.bgx.mode !== 'none') || (l.dbl && l.dbl.src))) img = composeExtras(l, img, opts);
   if (framed) drawFrame(c, l, bx);
   else if (l.edge) drawEdge(c, l, bx);
   else if (bb > 0 || l.shadow) {
@@ -340,6 +344,41 @@ function drawImageLayer(c, l, opts) {
   c.restore();
   if (l.shape === 'dia') { c.save(); c.strokeStyle = 'rgba(0,0,0,.18)'; c.lineWidth = ow * .006; c.strokeRect(-w / 2, -h / 2 + iy, w, h); c.restore(); }
   if (l.keyline) { c.save(); c.strokeStyle = l.keyline; c.lineWidth = Math.max(2, Math.min(w, h) * .004); const o = (l.keylineGap || 0) * Math.min(w, h); c.strokeRect(-w / 2 - o, -h / 2 + iy - o, w + 2 * o, h + 2 * o); c.restore(); }
+}
+/* ---------- Hintergrund ersetzen & Doppelbelichtung (brauchen das freigestellte Motiv bzw. ein zweites Foto) ---------- */
+const extraCache = new WeakMap(), objIds = new WeakMap(); let objN = 0;
+const idOf = o => o ? (objIds.get(o) || (objIds.set(o, ++objN), objN)) : 0;
+function procForSrc(srcId, opts) {
+  const o = state.layers.find(x => x.type === 'image' && x.srcId === srcId && !x.dbl && !(x.bgx && x.bgx.mode && x.bgx.mode !== 'none')) || state.layers.find(x => x.type === 'image' && x.srcId === srcId);
+  const base = sources.get(srcId)?.base || null; if (!o) return base;
+  return (opts.procs ? opts.procs.get(cacheKey(o)) : ensureCache(o)?.proc) || base;
+}
+function coverDraw(x, im, w, h, zoom = 1, px = .5, py = .5) {
+  const s = Math.max(w / im.width, h / im.height) * zoom, dw = im.width * s, dh = im.height * s; x.imageSmoothingQuality = 'high'; x.drawImage(im, (w - dw) * px, (h - dh) * py, dw, dh);
+}
+function composeExtras(l, img, opts) {
+  let bg = l.bgx && l.bgx.mode && l.bgx.mode !== 'none' ? l.bgx : null; const db = l.dbl && l.dbl.src ? l.dbl : null;
+  const cut = (bg || (db && db.inside)) && l.cut && l.cut.strokes && l.cut.strokes.length ? getCut(l, img) : null; if (!cut) bg = null;
+  const bgImg = bg && bg.mode === 'photo' && bg.src ? procForSrc(bg.src, opts) : null, dbImg = db ? procForSrc(db.src, opts) : null;
+  if (!bg && !(db && dbImg)) return img;
+  const key = JSON.stringify([bg, db]) + '|' + (cut ? cut.key.length + cut.key.slice(-40) : '') + '|' + idOf(cut && cut.mask) + '|' + idOf(bgImg) + '|' + idOf(dbImg);
+  const e = extraCache.get(img); if (e && e.key === key) return e.c;
+  const w = img.width, h = img.height, c = mk(w, h), x = c.getContext('2d');
+  if (bg) {
+    if (bg.mode === 'blur') { x.drawImage(blurCanvas(img, 1 / (3 + (bg.amt ?? 60) / 100 * 34)), 0, 0, w, h); }
+    else if (bg.mode === 'mono') { x.drawImage(img, 0, 0); x.globalCompositeOperation = 'saturation'; x.fillStyle = '#808080'; x.fillRect(0, 0, w, h); x.globalCompositeOperation = 'source-over'; }
+    else if (bg.mode === 'color') { x.fillStyle = bg.color || '#ffffff'; x.fillRect(0, 0, w, h); }
+    else if (bg.mode === 'photo') { if (bgImg) coverDraw(x, bgImg, w, h, bg.zoom || 1); else x.drawImage(img, 0, 0); }
+    else x.drawImage(img, 0, 0);
+    if (bg.dim) { x.fillStyle = bg.dim > 0 ? `rgba(0,0,0,${bg.dim / 100 * .8})` : `rgba(255,255,255,${-bg.dim / 100 * .8})`; x.fillRect(0, 0, w, h); }
+    x.drawImage(cut.img, 0, 0, w, h);
+  } else x.drawImage(img, 0, 0);
+  if (db && dbImg) {
+    const t = mk(w, h), tx = t.getContext('2d'); coverDraw(tx, dbImg, w, h, db.zoom || 1, db.px ?? .5, db.py ?? .5);
+    if (db.inside && cut) { tx.globalCompositeOperation = 'destination-in'; tx.drawImage(cut.mask, 0, 0, w, h); }
+    x.save(); x.globalAlpha = (db.amt ?? 70) / 100; x.globalCompositeOperation = db.mode || 'screen'; x.drawImage(t, 0, 0); x.restore();
+  }
+  extraCache.set(img, { key, c }); return c;
 }
 /* Sticker: nur das freigestellte Motiv mit weißem Rand und Schatten */
 function drawSticker(c, l, bx, img) {

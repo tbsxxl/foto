@@ -88,7 +88,7 @@ const MI = {
   crop: sv('<path d="M6 2v16h16"/><path d="M2 6h16v16"/>'), replace: sv('<path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5"/>'),
   all: sv('<rect x="2" y="6" width="6" height="12" rx="1.5"/><rect x="9" y="6" width="6" height="12" rx="1.5"/><rect x="16" y="6" width="6" height="12" rx="1.5"/>'),
   lock: sv('<rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/>'), unlock: sv('<rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 0 1 7.7-1.5"/>'),
-  del: sv('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'), text: sv('<path d="M5 6V4h14v2M12 4v16M9 20h6"/>'),
+  del: sv('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'), check: sv('<path d="m5 12 5 5 9-10"/>'), clock: sv('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'), text: sv('<path d="M5 6V4h14v2M12 4v16M9 20h6"/>'),
   photo: sv('<rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 8"/>'), tpl: sv('<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="10" width="8" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/>')
 };
 function layerMenu(l) {
@@ -181,8 +181,22 @@ function imgPt(l, p) {
 const localOf = (G, u, v) => ({ x: (u * G.iw - G.sx) * G.k - G.bx.w / 2, y: (v * G.ih - G.sy) * G.k - G.bx.h / 2 + G.bx.iy });
 
 /* ---------- Werkzeuge ---------- */
-const TOOL_OF_TAB = { freistellen: 'cut', selektiv: 'mask', pinsel: 'brush', reparieren: 'heal', fokus: 'focus', zuschnitt: 'crop' };
+const TOOL_OF_TAB = { entfernen: 'erase', klonen: 'clone', freistellen: 'cut', selektiv: 'mask', pinsel: 'brush', reparieren: 'heal', fokus: 'focus', zuschnitt: 'crop' };
 function activeTool() { const l = selLayer(); if (!l || l.type !== 'image' || !l.srcId) return null; if (ui.pick) return 'wb'; return TOOL_OF_TAB[ui.tab.image] || null; }
+/* KI-Maske rot eingefärbt (für die Anzeige), je Maske zwischengespeichert */
+const tintCache = new Map();
+function regionTint(m) {
+  const key = m.d.length + m.d.slice(-40) + (m.inv ? 'i' : ''); let e = tintCache.get(key); if (e) return e.c;
+  if (!tintCache.has('L' + key)) { tintCache.set('L' + key, 1); const im = new Image(); im.onload = () => {
+    const c = mk(im.width, im.height), x = c.getContext('2d'); x.drawImage(im, 0, 0); const id = x.getImageData(0, 0, c.width, c.height), d = id.data;
+    for (let i = 0; i < d.length; i += 4) { const v = m.inv ? 255 - d[i] : d[i]; d[i] = 255; d[i + 1] = 59; d[i + 2] = 80; d[i + 3] = v * .5; }
+    x.putImageData(id, 0, 0); tintCache.set(key, { c }); if (tintCache.size > 24) tintCache.delete(tintCache.keys().next().value); requestRender(); }; im.src = m.d; }
+  return null;
+}
+const maskName = (m, i) => m.kind === 'ai' ? ({ sky: 'Himmel', person: 'Person', subject: 'Motiv', bg: 'Hintergrund' }[m.sub] || 'Auswahl') : m.kind === 'lasso' ? 'Lasso' : `Punkt ${i + 1}`;
+function otherPhotos(l) { const seen = new Set([l.srcId]), out = []; let n = 0;
+  for (const o of state.layers) if (o.type === 'image' && o.srcId) { n++; if (!seen.has(o.srcId)) { seen.add(o.srcId); out.push({ srcId: o.srcId, name: 'Foto ' + n }); } }
+  return out; }
 function drawToolOverlay(l) {
   const tool = activeTool(), G = imgGeom(l); if (!G) return; const s = view.s, p = l.params;
   if (tool === 'crop' && !l.crop.box) { // ganzes Foto halbtransparent zeigen, damit man sieht, was außerhalb des Rahmens liegt
@@ -199,8 +213,12 @@ function drawToolOverlay(l) {
   const ring = (P, rx, ry, a, dash) => { ctx.save(); ctx.translate(P.x, P.y); ctx.rotate(a); ctx.beginPath(); ctx.ellipse(0, 0, Math.max(1, rx), Math.max(1, ry), 0, 0, Math.PI * 2); ctx.restore(); ctx.setLineDash(dash ? [8 / s, 6 / s] : []); ctx.lineWidth = 2 / s; ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.stroke(); ctx.setLineDash([]); };
   const line = (P, a, off, dash) => { const L = 4000, nx = Math.cos(a), ny = Math.sin(a), tx = -ny, ty = nx; ctx.beginPath(); ctx.moveTo(P.x + nx * off - tx * L, P.y + ny * off - ty * L); ctx.lineTo(P.x + nx * off + tx * L, P.y + ny * off + ty * L); ctx.setLineDash(dash ? [8 / s, 6 / s] : []); ctx.lineWidth = 2 / s; ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.stroke(); ctx.setLineDash([]); };
   const R = v => v * G.M * G.k;
+  const full = () => [-G.sx * G.k - G.bx.w / 2, -G.sy * G.k - G.bx.h / 2 + G.bx.iy, G.iw * G.k, G.ih * G.k];
   if (tool === 'mask') p.masks.forEach((m, i) => { const P = localOf(G, m.x, m.y);
-    if (i === ui.maskSel) { if (m.kind === 'linear') { line(P, m.angle, 0, false); line(P, m.angle, -R(m.rx) * m.feather, true); line(P, m.angle, R(m.rx) * m.feather, true); } else { ring(P, R(m.rx), R(m.ry), m.angle, false); ring(P, R(m.rx) * (1 - m.feather), R(m.ry) * (1 - m.feather), m.angle, true); } }
+    if (i === ui.maskSel && m.kind === 'ai') { const t = regionTint(m); if (t) { const [x0, y0, fw, fh] = full(); ctx.drawImage(t, x0, y0, fw, fh); } }
+    else if (i === ui.maskSel && m.kind === 'lasso' && m.pts.length > 2) { ctx.beginPath(); m.pts.forEach((v, j) => { if (j % 2) return; const Q = localOf(G, v, m.pts[j + 1]); j ? ctx.lineTo(Q.x, Q.y) : ctx.moveTo(Q.x, Q.y); }); ctx.closePath();
+      ctx.fillStyle = 'rgba(255,59,80,.28)'; if (!m.inv) ctx.fill(); ctx.setLineDash([8 / s, 6 / s]); ctx.lineWidth = 2 / s; ctx.strokeStyle = '#fff'; ctx.stroke(); ctx.setLineDash([]); }
+    else if (i === ui.maskSel) { if (m.kind === 'linear') { line(P, m.angle, 0, false); line(P, m.angle, -R(m.rx) * m.feather, true); line(P, m.angle, R(m.rx) * m.feather, true); } else { ring(P, R(m.rx), R(m.ry), m.angle, false); ring(P, R(m.rx) * (1 - m.feather), R(m.ry) * (1 - m.feather), m.angle, true); } }
     pin(P, i === ui.maskSel); });
   else if (tool === 'focus' && p.blur.mode !== 'off') { const b = p.blur, P = localOf(G, b.x, b.y);
     if (b.mode === 'radial') { ring(P, R(b.size), R(b.size), 0, false); ring(P, R(b.size + b.feather), R(b.size + b.feather), 0, true); }
@@ -216,6 +234,19 @@ function drawToolOverlay(l) {
       const [sx, sy, sw, sh] = cropRect(m.width, m.height, l); ctx.drawImage(m.tint, sx, sy, sw, sh, -G.bx.w / 2, -G.bx.h / 2 + G.bx.iy, G.bx.w, G.bx.h); }
     if (ui.cursor && !/^ai/.test(ui.cutMode)) { const P = localOf(G, ui.cursor.u, ui.cursor.v); ring(P, R(ui.cutSize / 100), R(ui.cutSize / 100), 0, ui.cutMode === 'erase'); }
     if (ui.segAt) { const P = localOf(G, ui.segAt.u, ui.segAt.v), t = performance.now() / 300; ring(P, 18 / s + Math.sin(t) * 6 / s, 18 / s + Math.sin(t) * 6 / s, 0, true); pin(P, true); requestAnimationFrame(requestRender); }
+  }
+  else if (tool === 'erase') {
+    const st = ui.erStroke; if (st && st.p.length) { ctx.beginPath(); for (let i = 0; i < st.p.length; i += 2) { const Q = localOf(G, st.p[i], st.p[i + 1]); i ? ctx.lineTo(Q.x, Q.y) : ctx.moveTo(Q.x, Q.y); }
+      if (st.p.length === 2) { const Q = localOf(G, st.p[0], st.p[1]); ctx.lineTo(Q.x + .01, Q.y); }
+      ctx.lineCap = ctx.lineJoin = 'round'; ctx.lineWidth = 2 * R(st.s); ctx.strokeStyle = 'rgba(255,59,48,.5)'; ctx.stroke();
+      if (ui.erBusy) { const t = performance.now() / 260; ctx.lineWidth = 2 * R(st.s) * (1 + .08 * Math.sin(t)); ctx.strokeStyle = `rgba(255,255,255,${.18 + .12 * Math.sin(t)})`; ctx.stroke(); requestAnimationFrame(requestRender); } }
+    if (ui.cursor && !ui.erBusy) { const P = localOf(G, ui.cursor.u, ui.cursor.v); ring(P, R(ui.erSize / 100), R(ui.erSize / 100), 0, false); }
+  }
+  else if (tool === 'clone') {
+    const cross = (P, col) => { const a = 14 / s; ctx.beginPath(); ctx.moveTo(P.x - a, P.y); ctx.lineTo(P.x + a, P.y); ctx.moveTo(P.x, P.y - a); ctx.lineTo(P.x, P.y + a); ctx.lineWidth = 4 / s; ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.stroke(); ctx.lineWidth = 2 / s; ctx.strokeStyle = col; ctx.stroke(); };
+    if (ui.cursor) { const P = localOf(G, ui.cursor.u, ui.cursor.v); ring(P, R(ui.cloneSize / 100), R(ui.cloneSize / 100), 0, false);
+      if (ui.cloneOff) cross(localOf(G, ui.cursor.u + ui.cloneOff.du, ui.cursor.v + ui.cloneOff.dv), COL.accent); }
+    if (ui.cloneSrc && !(ui.cursor && ui.cloneOff)) cross(localOf(G, ui.cloneSrc.u, ui.cloneSrc.v), COL.accent);
   }
   else if (tool === 'brush' && ui.cursor) { const P = localOf(G, ui.cursor.u, ui.cursor.v); ring(P, R(ui.brushSize / 100), R(ui.brushSize / 100), 0, false); }
   ctx.restore();
@@ -263,6 +294,18 @@ function startTool(tool, l, p) {
   const ip = imgPt(l, p); if (!ip) return null; const P = l.params, G = ip.G;
   const near = (u, v) => { const L = localOf(G, u, v), q = toLocal(l, p); return Math.hypot(L.x - q.x, L.y - q.y) * view.s < 26; };
   if (tool === 'wb') { if (!ip.inside) return null; const r = wbFromPoint(G.c.prep, ip.u, ip.v); P.temp = r.temp; P.tint = r.tint; ui.pick = false; toast('Weißabgleich gesetzt'); commit(); return { mode: 'tap' }; }
+  if (tool === 'erase') { if (!ip.inside || ui.erBusy) return null; ui.erStroke = { s: ui.erSize / 100, p: [+ip.u.toFixed(4), +ip.v.toFixed(4)] }; ui.cursor = { u: ip.u, v: ip.v };
+    return { mode: 'erPaint', l, st: ui.erStroke, sx: p.sx, sy: p.sy, moved: false }; }
+  if (tool === 'clone') {
+    if (!ip.inside) return null;
+    if (ui.cloneMode === 'src' || !ui.cloneSrc) { ui.cloneSrc = { u: ip.u, v: ip.v }; ui.cloneOff = null; ui.cloneMode = 'paint'; haptic(); renderPanel(); toast('Quelle gesetzt – jetzt dort malen, wo kopiert werden soll'); return { mode: 'tap' }; }
+    if (!ui.cloneOff) ui.cloneOff = { du: ui.cloneSrc.u - ip.u, dv: ui.cloneSrc.v - ip.v };
+    const st = { s: ui.cloneSize / 100, dx: +ui.cloneOff.du.toFixed(4), dy: +ui.cloneOff.dv.toFixed(4), hard: .45, p: [+ip.u.toFixed(4), +ip.v.toFixed(4)] };
+    P.clone.push(st); ui.cursor = { u: ip.u, v: ip.v }; flags.throttle = 160; return { mode: 'brush', st, l, moved: true };
+  }
+  if (tool === 'mask' && ui.lasso) { if (!ip.inside) return null;
+    const m = { kind: 'lasso', pts: [+ip.u.toFixed(4), +ip.v.toFixed(4)], x: ip.u, y: ip.v, rx: .16, ry: .16, angle: 0, feather: .15, inv: false, ex: 0, co: 0, sat: 0, temp: 0, st: 0 };
+    P.masks.push(m); ui.maskSel = P.masks.length - 1; return { mode: 'lasso', m, l, moved: true }; }
   if (tool === 'mask') {
     const hit = P.masks.findIndex(m => near(m.x, m.y));
     if (hit >= 0) { ui.maskSel = hit; renderPanel(); return { mode: 'pinDrag', get: () => P.masks[hit], du: 0, dv: 0, l }; }
@@ -283,6 +326,7 @@ function startTool(tool, l, p) {
   if (tool === 'cut') {
     if (!ip.inside) return null;
     if (/^ai/.test(ui.cutMode)) return { mode: 'aiTap', l, u: ip.u, v: ip.v, sx: p.sx, sy: p.sy, moved: false };
+    if (/^lasso/.test(ui.cutMode)) { if (!l.cut) l.cut = { on: true, strokes: [] }; l.cut.on = true; const st = { m: ui.cutMode, s: .004, p: [+ip.u.toFixed(4), +ip.v.toFixed(4)] }; l.cut.strokes.push(st); flags.throttle = 140; return { mode: 'brush', st, l, arr: l.cut.strokes, moved: true }; }
     if (!l.cut) l.cut = { on: true, strokes: [] }; l.cut.on = true;
     const st = { m: ui.cutMode, s: ui.cutSize / 100, smart: ui.cutSmart, p: [+ip.u.toFixed(4), +ip.v.toFixed(4)] };
     l.cut.strokes.push(st); ui.cursor = { u: ip.u, v: ip.v }; flags.throttle = 110;
@@ -363,6 +407,9 @@ cv.addEventListener('pointermove', e => {
     setSize(l, gest.size0 * d / gest.d0); let r = gest.rot0 + (a - gest.a0) * 180 / Math.PI; r = ((r + 540) % 360) - 180;
     let sn = false; for (const t of [-180, -90, 0, 90, 180]) if (Math.abs(r - t) < 3) { r = t; sn = true; } if (sn && !gest.sn) haptic(); gest.sn = sn; l.rot = r; showHud(l, gest); }
   else if (m === 'pan') { if (gest.moved) { view.ox = gest.ox + (p.sx - gest.sx); view.oy = gest.oy + (p.sy - gest.sy); clampView(); } }
+  else if (m === 'erPaint') { const ip = imgPt(gest.l, p); if (ip) { const a = gest.st.p, lu = a[a.length - 2], lv = a[a.length - 1]; ui.cursor = { u: ip.u, v: ip.v };
+      if (Math.hypot(ip.u - lu, ip.v - lv) > gest.st.s * .2) a.push(+ip.u.toFixed(4), +ip.v.toFixed(4)); } }
+  else if (m === 'lasso') { const ip = imgPt(gest.l, p); if (ip) { const a = gest.m.pts, lu = a[a.length - 2], lv = a[a.length - 1]; if (Math.hypot(ip.u - lu, ip.v - lv) > .006) a.push(+clamp(ip.u).toFixed(4), +clamp(ip.v).toFixed(4)); } }
   else if (m === 'pinDrag') { const ip = imgPt(gest.l, p), t = gest.get(); if (ip && t) { t.x = clamp(ip.u + (gest.du || 0)); t.y = clamp(ip.v + (gest.dv || 0)); } }
   else if (m === 'brush') { const ip = imgPt(gest.l, p); if (ip) { const a = gest.st.p, lu = a[a.length - 2], lv = a[a.length - 1]; ui.cursor = { u: ip.u, v: ip.v };
       if (Math.hypot(ip.u - lu, ip.v - lv) > gest.st.s * .15) a.push(+ip.u.toFixed(4), +ip.v.toFixed(4)); } }
@@ -386,6 +433,10 @@ function endPtr(e) {
   const g = gest; gest = null; ui.guides = []; flags.throttle = 0; if (!g || !g.target) ui.dropId = null;
   if (g) {
     if (g.mode === 'aiTap') { if (!g.moved) runSegment(g.l, g.u, g.v, ui.cutMode); }
+    else if (g.mode === 'erPaint') { const st = g.st; if (st.p.length <= 4) { const ip = { u: st.p[0], v: st.p[1] }; runErase(g.l, ip); } else runErase(g.l, { stroke: st }); }
+    else if (g.mode === 'lasso') { const P = g.l.params, m = g.m; ui.lasso = false;
+      if (m.pts.length < 12) { P.masks.splice(P.masks.indexOf(m), 1); ui.maskSel = Math.max(0, P.masks.length - 1); toast('Zu klein – umfahre den Bereich'); renderPanel(); }
+      else { let sx = 0, sy = 0; for (let i = 0; i < m.pts.length; i += 2) { sx += m.pts[i]; sy += m.pts[i + 1]; } m.x = sx / (m.pts.length / 2); m.y = sy / (m.pts.length / 2); haptic(); commit(); toast('Bereich ausgewählt – jetzt die Regler anpassen'); } }
     else if (g.mode === 'pan' && !g.moved && ui.sel && !activeTool()) selectLayer(null);
     else if (g.mode === 'move' && !g.moved && g.l && g.l.type === 'image' && !g.l.srcId) ui.tapPh = g.l.id;
     else if ((g.mode === 'move' || g.mode === 'crop') && !g.moved && g.l && g.l.type === 'image' && g.l.srcId) { const now = performance.now();
@@ -430,6 +481,74 @@ async function runSegment(l, u, v, mode) {
   finally { ui.segBusy = false; ui.segAt = null; requestRender(); }
 }
 cutHooks.onReady = () => requestRender();
+/* ---------- KI-Werkzeuge ---------- */
+const busyHud = t => { hud.textContent = t; hud.hidden = false; };
+const workImg = (c, max = 1024) => { const p = c.prep, k = Math.min(1, max / Math.max(p.width, p.height)); return k < 1 ? shrink(p, Math.round(p.width * k), Math.round(p.height * k)) : p; };
+const coverage = m => { let n = 0; for (let i = 0; i < m.data.length; i += 5) n += m.data[i] > .5; return n / (m.data.length / 5); };
+const centroid = m => { let sx = 0, sy = 0, n = 0; for (let y = 0; y < m.h; y += 2) for (let x = 0; x < m.w; x += 2) { const v = m.data[y * m.w + x]; if (v > .5) { sx += x; sy += y; n++; } } return n ? [sx / n / m.w, sy / n / m.h] : [.5, .5]; };
+/* Motiv: erst Personen suchen, sonst das Objekt in der Bildmitte */
+async function findSubject(c) {
+  const S = await import('./segment.js'), img = workImg(c);
+  try { const r = await S.segmentPeople(img), m = { w: r.w, h: r.h, data: r.person }; if (coverage(m) > .03) return m; } catch (e) { console.warn(e); }
+  const m = await S.segmentAt(img, .5, .5); return coverage(m) > .01 ? cleanMask(m, .5, .5) : null;
+}
+async function addAiMask(l, kind) {
+  if (ui.aiBusy) return; const c = ensureCache(l); if (!c) return; ui.aiBusy = true;
+  busyHud(kind === 'sky' ? 'Himmel wird gesucht …' : 'Wird erkannt …');
+  try {
+    let m = null;
+    if (kind === 'sky') { const A = await import('./ai.js'); m = A.skyMask(workImg(c, 720)); }
+    else if (kind === 'person') { const S = await import('./segment.js'), r = await S.segmentPeople(workImg(c)); m = { w: r.w, h: r.h, data: r.person }; if (coverage(m) < .01) m = null; }
+    else m = await findSubject(c);
+    if (!m) { toast(kind === 'sky' ? 'Kein Himmel gefunden' : kind === 'person' ? 'Keine Person gefunden' : 'Kein Motiv gefunden – nutze das Lasso'); return; }
+    const [x, y] = centroid(m), P = l.params;
+    P.masks.push({ kind: 'ai', sub: kind, d: maskToPNG(m, 1024), inv: kind === 'bg', x: kind === 'bg' ? clamp(1 - x, .1, .9) : x, y, rx: .16, ry: .16, angle: 0, feather: .1, ex: 0, co: 0, sat: 0, temp: 0, st: 0 });
+    ui.maskSel = P.masks.length - 1; haptic(); commit(); toast(({ sky: 'Himmel', person: 'Person', subject: 'Motiv', bg: 'Hintergrund' })[kind] + ' ausgewählt – jetzt die Regler anpassen');
+  } catch (e) { console.error(e); toast('Die Erkennung hat nicht geklappt – beim ersten Mal ist Internet nötig'); }
+  finally { ui.aiBusy = false; hud.hidden = true; }
+}
+async function detectSkin(l, force) {
+  if (ui.skinBusy) return; const c = ensureCache(l); if (!c || (!force && l.params.skin.d)) return; ui.skinBusy = true; busyHud('Haut wird erkannt …'); renderPanel();
+  try { const S = await import('./segment.js'), r = await S.segmentPeople(workImg(c)), m = { w: r.w, h: r.h, data: r.skin };
+    if (coverage(m) < .004) { toast('Keine Haut gefunden – funktioniert bei Fotos von Menschen'); return; }
+    l.params.skin.d = maskToPNG(m, 1024); if (!l.params.skin.amt && !l.params.skin.glow) l.params.skin.amt = 45; haptic(); commit(); toast('Haut erkannt');
+  } catch (e) { console.error(e); toast('Die Erkennung hat nicht geklappt – beim ersten Mal ist Internet nötig'); }
+  finally { ui.skinBusy = false; hud.hidden = true; renderPanel(); }
+}
+async function autoCut(l) {
+  if (ui.aiBusy) return; const c = ensureCache(l); if (!c) return; ui.aiBusy = true; busyHud('Motiv wird erkannt …');
+  try { const m = await findSubject(c); if (!m) { toast('Kein Motiv gefunden – stelle es unter „Freistellen“ selbst frei'); return; }
+    const [x, y] = centroid(m); if (!l.cut) l.cut = { on: true, strokes: [] }; if (l.cut.refine == null) l.cut.refine = true;
+    l.cut.strokes.push({ m: 'ai', d: maskToPNG(m), p: [+x.toFixed(4), +y.toFixed(4)] }); haptic(); commit(); toast('Motiv erkannt');
+  } catch (e) { console.error(e); toast('Die Erkennung hat nicht geklappt – beim ersten Mal ist Internet nötig'); }
+  finally { ui.aiBusy = false; hud.hidden = true; }
+}
+/* Objekt entfernen: Antippen (Objekt erkennen) oder Übermalen, dann füllt MI-GAN die Stelle */
+async function runErase(l, how) {
+  if (ui.erBusy) return; const c = ensureCache(l); if (!c || !c.prep) return;
+  ui.erBusy = true; requestRender();
+  const prog = (f, ph) => busyHud(ph === 'run' ? 'Wird entfernt …' : f < 1 ? `KI-Modell wird geladen … ${Math.round(f * 100)} %` : 'Wird entfernt …');
+  try {
+    const src = c.prep, W = src.width, H = src.height, k = Math.min(1, 1024 / Math.max(W, H)), hole = mk(W * k, H * k), hx = hole.getContext('2d'), hw = hole.width, hh = hole.height;
+    if (how.stroke) { const st = how.stroke, R = Math.max(2, st.s * Math.max(hw, hh)), pts = st.p;
+      hx.strokeStyle = hx.fillStyle = '#fff'; hx.lineCap = hx.lineJoin = 'round'; hx.lineWidth = 2 * R;
+      hx.beginPath(); hx.moveTo(pts[0] * hw, pts[1] * hh); for (let i = 2; i < pts.length; i += 2) hx.lineTo(pts[i] * hw, pts[i + 1] * hh); hx.stroke();
+      hx.beginPath(); hx.arc(pts[0] * hw, pts[1] * hh, R, 0, Math.PI * 2); hx.fill();
+      // geschlossene Umrandung: Inneres mitnehmen
+      if (pts.length > 16 && Math.hypot((pts[0] - pts[pts.length - 2]) * hw, (pts[1] - pts[pts.length - 1]) * hh) < R * 3) { hx.beginPath(); hx.moveTo(pts[0] * hw, pts[1] * hh); for (let i = 2; i < pts.length; i += 2) hx.lineTo(pts[i] * hw, pts[i + 1] * hh); hx.closePath(); hx.fill(); } }
+    else { busyHud('Objekt wird erkannt …'); const S = await import('./segment.js'), m = await S.segmentAt(workImg(c), how.u, how.v);
+      if (coverage(m) < .0015) { toast('Hier wurde nichts erkannt – übermale das Objekt'); return; }
+      if (coverage(m) > .45) { toast('Das ist zu groß zum Entfernen – übermale nur das störende Objekt'); return; }
+      const cm = cleanMask(m, how.u, how.v), t = mk(cm.w, cm.h), tx = t.getContext('2d'), id = tx.createImageData(cm.w, cm.h);
+      for (let i = 0; i < cm.data.length; i++) { id.data[i * 4] = id.data[i * 4 + 1] = id.data[i * 4 + 2] = 255; id.data[i * 4 + 3] = cm.data[i] > .35 ? 255 : 0; }
+      tx.putImageData(id, 0, 0); hx.drawImage(t, 0, 0, hw, hh); }
+    const A = await import('./ai.js'); prog(0);
+    const r = await A.inpaint(src, hole, prog); if (!r) { toast('Nichts zum Entfernen markiert'); return; }
+    l.params.erase.push({ x: +r.x.toFixed(5), y: +r.y.toFixed(5), w: +r.w.toFixed(5), h: +r.h.toFixed(5), d: r.canvas.toDataURL('image/png') });
+    ui.nextLabel = layerName(l) + ' · Objekt entfernt'; haptic(); commit(); toast('Entfernt', 'Rückgängig', undo);
+  } catch (e) { console.error(e); toast('Entfernen hat nicht geklappt – beim ersten Mal ist Internet nötig, sonst Speicher knapp'); }
+  finally { ui.erBusy = false; ui.erStroke = null; hud.hidden = true; requestRender(); }
+}
 function selectLayer(id) {
   { const l = state.layers.find(x => x.id === id), sr = $('#srLive'); if (sr) sr.textContent = l ? layerName(l) + ' ausgewählt' : ''; }
   if (id != null && id !== ui.sel) haptic();
@@ -438,15 +557,35 @@ function selectLayer(id) {
 }
 
 /* ---------- Verlauf & automatisches Speichern ---------- */
-let hist = [], hIdx = -1;
-const snap = () => JSON.stringify({ format: state.format, slides: state.slides, bg: state.bg, tpl: state.tpl || null, layers: state.layers });
-function pushHistory() { relink(ui.sel); const s = snap(); if (hist[hIdx] === s) return; hist = hist.slice(0, hIdx + 1); hist.push(s); if (hist.length > 60) hist.shift(); hIdx = hist.length - 1; updateTop(); scheduleSave(); }
+let hist = [], hIdx = -1, histLbl = [];
+/* große Daten (Masken, Füll-Patches) nur einmal im Speicher halten – der Verlauf verweist darauf */
+const BLOBS = new Map();
+function blobKey(v) { let h = 0; for (let i = 0; i < v.length; i += 61) h = (h * 31 + v.charCodeAt(i)) | 0; return '@@b' + v.length + ':' + h + ':' + v.slice(-12); }
+const snap = () => JSON.stringify({ format: state.format, slides: state.slides, bg: state.bg, tpl: state.tpl || null, layers: state.layers },
+  (k, v) => { if (typeof v === 'string' && v.length > 4000) { const bk = blobKey(v); BLOBS.set(bk, v); return bk; } return v; });
+function autoLabel() {
+  const m = mode(), l = selLayer();
+  if (m === 'image') return layerName(l) + ' · ' + (SUB_LABEL[ui.tab.image] || { looks: 'Looks', rahmen: 'Rahmen', zuschnitt: 'Zuschnitt', ebene: 'Ebene', licht: 'Licht' }[ui.tab.image] || 'Bearbeitung');
+  if (m === 'text') return 'Text „' + esc((l.text || '').split('\n')[0].slice(0, 16)) + '“';
+  if (m === 'shape') return layerName(l); if (m === 'slot') return 'Leeres Feld';
+  return { canvas: 'Leinwand', vorlagen: 'Vorlage', ebenen: 'Ebenen', element: 'Element' }[ui.tab.none] || 'Änderung';
+}
+function pushHistory() { relink(ui.sel); const s = snap(); if (hist[hIdx] === s) return; hist = hist.slice(0, hIdx + 1); histLbl = histLbl.slice(0, hIdx + 1);
+  hist.push(s); histLbl.push({ t: Date.now(), l: hist.length === 1 ? 'Geöffnet' : (ui.nextLabel || autoLabel()) }); ui.nextLabel = null;
+  if (hist.length > 60) { hist.shift(); histLbl.shift(); } hIdx = hist.length - 1; updateTop(); scheduleSave(); }
 function restore(s) {
-  const o = JSON.parse(s); state.format = o.format; state.slides = o.slides; state.bg = o.bg; state.tpl = o.tpl || null; state.layers = o.layers; relink();
+  const o = JSON.parse(s, (k, v) => typeof v === 'string' && v.startsWith('@@b') && BLOBS.has(v) ? BLOBS.get(v) : v); state.format = o.format; state.slides = o.slides; state.bg = o.bg; state.tpl = o.tpl || null; state.layers = o.layers; relink();
   ids.n = Math.max(ids.n, ...state.layers.map(l => l.id + 1), 1);
   if (!selLayer()) ui.sel = null; fit(); renderUI(); requestRender(); scheduleSave();
 }
 function undo() { if (hIdx > 0) { hIdx--; restore(hist[hIdx]); } }
+function goHistory(i) { if (i >= 0 && i < hist.length && i !== hIdx) { hIdx = i; restore(hist[hIdx]); haptic(); } }
+/* Verlauf als Liste (Rückgängig-Knopf lange drücken oder in „Ebenen“) */
+function historyItems(max = 14) {
+  const out = []; for (let i = hist.length - 1; i >= Math.max(0, hist.length - max); i--) out.push([(i === hIdx ? '✓ ' : '') + histLbl[i]?.l + ' · ' + ago(histLbl[i]?.t), i === hIdx ? 'check' : 'clock', () => goHistory(i)]);
+  return out;
+}
+const ago = t => { if (!t) return ''; const s = Math.round((Date.now() - t) / 1000); return s < 50 ? 'gerade' : s < 3600 ? Math.round(s / 60) + ' Min.' : new Date(t).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }); };
 function redo() { if (hIdx < hist.length - 1) { hIdx++; restore(hist[hIdx]); } }
 
 let saveT = null, savedSrc = new Set(), saveChain = Promise.resolve();
@@ -479,7 +618,10 @@ function updateTop() {
   $('#fmtTag').textContent = `${state.format} · ${state.slides} ${state.slides === 1 ? 'Slide' : 'Slides'}`;
   const tool = activeTool(), l = selLayer();
   const hintEl = $('#stageHint'), prevHint = hintEl.textContent;
-  hintEl.textContent = tool === 'mask' ? 'Tippe ins Foto für einen neuen Punkt · Punkt ziehen verschiebt · zwei Finger: Größe & Drehung'
+  hintEl.textContent = tool === 'mask' && ui.lasso ? 'Umfahre den Bereich mit dem Finger'
+    : tool === 'erase' ? (ui.erBusy ? 'Wird entfernt …' : 'Objekt antippen oder übermalen')
+    : tool === 'clone' ? (ui.cloneSrc && ui.cloneMode === 'paint' ? 'Malen – das Kreuz zeigt die Quelle' : 'Tippe auf die Stelle, von der kopiert wird')
+    : tool === 'mask' ? 'Tippe ins Foto für einen neuen Punkt · Punkt ziehen verschiebt · zwei Finger: Größe & Drehung'
     : tool === 'cut' && ui.cutMode === 'ai' ? 'Tippe aufs Motiv – es wird automatisch freigestellt' : tool === 'cut' && ui.cutMode === 'aisub' ? 'Tippe auf einen Bereich, der weg soll'
     : tool === 'cut' ? (ui.cutMode === 'erase' ? 'Radierer: übermaltes Motiv wieder zurücknehmen' : 'Male über das Motiv – es liegt dann vor Text & Elementen · zwei Finger: Ansicht')
     : tool === 'brush' ? `Mit dem Finger malen: ${BRUSH_MODES.find(b => b[0] === ui.brushMode)[1]} · zwei Finger: Ansicht verschieben`
@@ -513,8 +655,9 @@ const IC = {
 };
 /* Foto-Werkzeuge in Gruppen: obere Reiter, darunter Unterreiter */
 const IMG_GROUPS = [['rahmen', 'Rahmen', 'frame', ['rahmen']], ['looks', 'Looks', 'looks', ['looks']], ['licht', 'Licht', 'light', ['anpassen', 'licht', 'kurve']], ['farbe', 'Farbe', 'color', ['farbe', 'grading']],
-  ['effekte', 'Effekte', 'fx', ['effekte', 'details', 'stempel']], ['werkzeuge', 'Werkzeuge', 'tools', ['freistellen', 'selektiv', 'pinsel', 'reparieren', 'fokus']], ['zuschnitt', 'Zuschnitt', 'crop', ['zuschnitt']], ['ebene', 'Ebene', 'layers', ['ebene']]];
+  ['effekte', 'Effekte', 'fx', ['effekte', 'kreativ', 'details', 'stempel']], ['werkzeuge', 'Werkzeuge', 'tools', ['entfernen', 'freistellen', 'hintergrund', 'selektiv', 'gesicht', 'pinsel', 'reparieren', 'klonen', 'fokus']], ['zuschnitt', 'Zuschnitt', 'crop', ['zuschnitt']], ['ebene', 'Ebene', 'layers', ['ebene']]];
 const SUB_LABEL = { anpassen: 'Schnell', licht: 'Licht & Histogramm', kurve: 'Kurve', farbe: 'Farbe & HSL', grading: 'Color Grading', effekte: 'Film & Licht', details: 'Details', stempel: 'Datumsstempel',
+  kreativ: 'Kreativ', entfernen: 'Entfernen', hintergrund: 'Hintergrund', gesicht: 'Gesicht & Haut', klonen: 'Stempel',
   freistellen: 'Freistellen', selektiv: 'Selektiv', pinsel: 'Pinsel', reparieren: 'Reparieren', fokus: 'Fokus' };
 const groupOf = leaf => IMG_GROUPS.find(g => g[3].includes(leaf)) || IMG_GROUPS[0];
 const TABSETS = {
@@ -585,7 +728,7 @@ function target(ns) {
   const l = selLayer(), P = l && l.params;
   switch (ns) {
     case 'p': return P; case 'l': return l; case 'c': return l.crop; case 'h': return P.hsl[ui.hslBand]; case 'g': return P.grade[ui.gradeRange]; case 'gr': return P.grade;
-    case 'm': return P.masks[ui.maskSel]; case 'b': return P.blur; case 'pv': return P.persp; case 'ui': return ui; case 'bg': return state.bg; case 'tp': return state.tpl; case 'cut': return l && l.cut;
+    case 'm': return P.masks[ui.maskSel]; case 'b': return P.blur; case 'pv': return P.persp; case 'ui': return ui; case 'bg': return state.bg; case 'tp': return state.tpl; case 'cut': return l && l.cut; case 'sk': return P && P.skin; case 'bgx': return l && (l.bgx = l.bgx || { mode: 'none' }); case 'dbl': return l && l.dbl;
   }
 }
 function getVal(k) { const [ns, f] = k.split('.'); if (k === 'l.wpct') return Math.round(selLayer().w / dims().W * 100); if (k === 'l.wprop') return Math.round(selLayer().w); const t = target(ns); return t ? t[f] : 0; }
@@ -605,7 +748,7 @@ panel.addEventListener('input', e => {
   if (t.matches('input[type=range][data-k]')) {
     let v = +t.value; const def = +t.dataset.def, span = +t.max - +t.min;
     if (v !== def && Math.abs(v - def) < span * .012 && def >= +t.min && def <= +t.max) { v = def; t.value = def; if (!t._mag) haptic(); t._mag = true; } else if (Math.abs(v - def) > span * .03) t._mag = false;
-    if (/^(p|h|g|gr|m|b|pv)\./.test(t.dataset.k)) flags.draft = true; if (/^cut\./.test(t.dataset.k)) flags.throttle = 160; setVal(t.dataset.k, v / +t.dataset.scale); t.closest('.sl').querySelector('output').textContent = FMT[t.dataset.fmt](v);
+    if (/^(p|h|g|gr|m|b|pv|sk)\./.test(t.dataset.k)) flags.draft = true; if (/^cut\./.test(t.dataset.k)) flags.throttle = 160; setVal(t.dataset.k, v / +t.dataset.scale); t.closest('.sl').querySelector('output').textContent = FMT[t.dataset.fmt](v);
     t.closest('.sl').classList.toggle('changed', v !== +t.dataset.def); paintFill(t);
     if (t.dataset.k.startsWith('h.')) markBands(); if (t.dataset.k.startsWith('g.')) markGrade();
     if (t.dataset.k.startsWith('tp.')) layout(false);
@@ -640,7 +783,7 @@ function applyColor(target, v) {
   if (/^bg/.test(target) && state.tpl) state.tpl.bgLock = true;
   if (target.startsWith('tpl')) { state.tpl[{ tplFrame: 'frameColor', tplText: 'textColor', tplInk: 'ink' }[target]] = v; layout(false); return; }
   if (target === 'bg1') state.bg.c1 = v; else if (target === 'bg2') state.bg.c2 = v;
-  else if (target === 'frame') l.borderColor = v; else if (target === 'text') l.color = v; else if (target === 'textbg') { l.bgColor = v; l.bgSet = true; } else if (target === 'stroke') l.strokeColor = v; else if (target === 'fill') l.fill = v; else if (target === 'pin') l.pinColor = v;
+  else if (target === 'frame') l.borderColor = v; else if (target === 'text') l.color = v; else if (target === 'textbg') { l.bgColor = v; l.bgSet = true; } else if (target === 'stroke') l.strokeColor = v; else if (target === 'fill') l.fill = v; else if (target === 'pin') l.pinColor = v; else if (target === 'bgx') { l.bgx = l.bgx || { mode: 'color' }; l.bgx.color = v; }
 }
 const chip = (attrs, label, on) => `<button class="chip" ${attrs} aria-pressed="${!!on}">${label}</button>`;
 const sw = (target, c, on) => `<button class="sw" style="--c:${c}" data-col-set="${target}" data-v="${c}" aria-pressed="${!!on}" aria-label="Farbe ${c}"></button>`;
@@ -682,6 +825,7 @@ function renderPanel() {
   panel.querySelectorAll('input[type=range]').forEach(paintFill);
   if (m === 'none' && t === 'canvas') drawSlideThumbs();
   if (m === 'none' && t === 'vorlagen') realTplPreviews();
+  if (m === 'image' && t === 'gesicht' && !l.params.skin.d && !ui.skinBusy) { ui.skinTried = ui.skinTried || new Set(); if (!ui.skinTried.has(l.id)) { ui.skinTried.add(l.id); setTimeout(() => detectSkin(l), 50); } }
   if (m === 'image') { if (t === 'looks') fillThumbs(); if (t === 'licht') { flags.histDirty = true; requestRender(); } if (t === 'kurve') setupCurve(); }
 }
 function panelCanvas() {
@@ -791,7 +935,8 @@ function panelLayers() {
     <button class="icon-btn sm${l.locked ? ' on' : ''}" data-llock="${l.id}" aria-label="${l.locked ? 'Entsperren' : 'Sperren'}" title="${l.locked ? 'Entsperren' : 'Sperren'}">${l.locked ? IC.lock : IC.unlock}</button>
     <button class="icon-btn sm" data-lup="${l.id}" aria-label="Nach vorn" ${i === state.layers.length - 1 ? 'disabled' : ''}>${IC.up}</button>
     <button class="icon-btn sm" data-ldown="${l.id}" aria-label="Nach hinten" ${i === 0 ? 'disabled' : ''}>${IC.down}</button></div>`).join('')}</div>
-    <p class="note">Oben in der Liste liegt vorne. Gesperrte Ebenen lassen sich nicht versehentlich verschieben.</p>`;
+    <p class="note">Oben in der Liste liegt vorne. Gesperrte Ebenen lassen sich nicht versehentlich verschieben.</p>
+    ${hist.length > 1 ? group('Verlauf', `<div class="hist-list">${historyItems(12).map(([lb, ic], k) => `<button class="hist-row${lb.startsWith('✓') ? ' on' : ''}" data-hist="${hist.length - 1 - k}">${lb.replace('✓ ', '')}</button>`).join('')}</div><p class="note">Tippe einen Schritt an, um dorthin zurückzuspringen. Tipp: Rückgängig-Knopf lange drücken.</p>`) : ''}`;
 }
 const EMOJI = ['☀️', '🌊', '❤️', '✨', '📍', '🌸', '🍂', '⭐', '🌙', '📷', '🎞️', '🍦', '🐚', '⛵', '🌿', '🔥', '🦋', '🌈', '💌', '🎉'];
 function panelElements() {
@@ -892,18 +1037,26 @@ const IMAGE_PANELS = {
     ${group('Farbe', `<div class="swatches">${Object.entries(STAMP_COLORS).map(([k, [c]]) => `<button class="sw" style="--c:${c}" data-scol="${k}" aria-pressed="${st.color === k}" aria-label="${k}"></button>`).join('')}</div>`)}
     ${group('Position', `<div class="chips">${[['br', 'Unten rechts'], ['bl', 'Unten links'], ['tr', 'Oben rechts']].map(([k, lb]) => chip(`data-spos="${k}"`, lb, st.pos === k)).join('')}</div>`)}`; },
   selektiv: (l, p) => {
-    const m = p.masks[ui.maskSel];
-    const list = p.masks.length ? `<div class="chips">${p.masks.map((mm, i) => chip(`data-mask="${i}"`, `Punkt ${i + 1}`, i === ui.maskSel)).join('')}</div>` : '<p class="note"><b>Tippe ins Foto</b>, um einen Bereich gezielt aufzuhellen, abzudunkeln oder einzufärben – wie „Selektiv“ in Snapseed oder Masken in Lightroom.</p>';
-    if (!m) return list;
-    return `${list}<div class="chips">${chip('data-mkind="radial"', 'Radial', m.kind !== 'linear')}${chip('data-mkind="linear"', 'Verlauf', m.kind === 'linear')}</div>
+    const m = p.masks[ui.maskSel], region = m && (m.kind === 'ai' || m.kind === 'lasso');
+    const add = group('Neue Auswahl', `<div class="chips">${[['sky', '☁️ Himmel'], ['subject', '✨ Motiv'], ['person', '🧍 Person'], ['bg', '🏞 Hintergrund']].map(([k, lb]) => chip(`data-aimask="${k}"`, lb, false)).join('')}${chip('data-act2="lassoMask"', ui.lasso ? 'Jetzt umfahren …' : '✏️ Lasso', ui.lasso)}</div>
+      <p class="note">KI-Auswahl erkennt den Bereich auf dem Gerät. Oder <b>ins Foto tippen</b> für einen runden Punkt.</p>`);
+    const list = p.masks.length ? `<div class="chips">${p.masks.map((mm, i) => chip(`data-mask="${i}"`, maskName(mm, i), i === ui.maskSel)).join('')}</div>` : '<p class="note"><b>Tippe ins Foto</b>, um einen Bereich gezielt aufzuhellen, abzudunkeln oder einzufärben – wie „Selektiv“ in Snapseed oder Masken in Lightroom.</p>';
+    if (!m) return add + list;
+    if (region) return `${add}${list}
+    ${group('Anpassung', slider('m.ex', 'Helligkeit', -2, 2, .05, 'ev') + slider('m.co', 'Kontrast', -100, 100, 1, 'signed', 0, 100) + slider('m.sat', 'Sättigung', -100, 100, 1, 'signed', 0, 100) + slider('m.temp', 'Wärme', -100, 100, 1, 'signed', 0, 100) + slider('m.st', 'Struktur', -100, 100, 1, 'signed', 0, 100))}
+    ${group('Kante', slider('m.feather', 'Weiche Kante', 0, 100, 1, 'pct', 10, 100))}
+    ${toggle('minv', 'Umkehren', m.inv)}
+    <div class="row">${btn('maskDel', 'Auswahl löschen', 'danger')}${btn('maskDup', 'Duplizieren')}</div>`;
+    return `${add}${list}<div class="chips">${chip('data-mkind="radial"', 'Radial', m.kind !== 'linear')}${chip('data-mkind="linear"', 'Verlauf', m.kind === 'linear')}</div>
     ${group('Anpassung', slider('m.ex', 'Helligkeit', -2, 2, .05, 'ev') + slider('m.co', 'Kontrast', -100, 100, 1, 'signed', 0, 100) + slider('m.sat', 'Sättigung', -100, 100, 1, 'signed', 0, 100) + slider('m.temp', 'Wärme', -100, 100, 1, 'signed', 0, 100) + slider('m.st', 'Struktur', -100, 100, 1, 'signed', 0, 100))}
     ${group('Form', slider('m.rx', m.kind === 'linear' ? 'Breite' : 'Größe', 1, 100, 1, 'n', 16, 100) + (m.kind !== 'linear' ? slider('m.ry', 'Höhe', 1, 100, 1, 'n', 16, 100) : '') + slider('m.feather', 'Weiche Kante', 2, 100, 1, 'pct', 60, 100) + slider('m.angle', 'Drehung', -180, 180, 1, 'deg', 0, 180 / Math.PI))}
     ${toggle('minv', 'Umkehren (außen statt innen)', m.inv)}
     <div class="row">${btn('maskDel', 'Punkt löschen', 'danger')}${btn('maskDup', 'Duplizieren')}</div>`;
   },
   freistellen: (l, p) => { const n = l.cut ? l.cut.strokes.length : 0, ai = /^ai/.test(ui.cutMode);
-    return `<div class="chips">${[['ai', '✨ Motiv antippen'], ['add', 'Malen'], ['erase', 'Radieren'], ['aisub', 'Bereich entfernen']].map(([k, lb]) => chip(`data-cutmode="${k}"`, lb, ui.cutMode === k)).join('')}</div>
+    return `<div class="chips">${[['ai', '✨ Motiv antippen'], ['add', 'Malen'], ['erase', 'Radieren'], ['lasso', 'Lasso +'], ['lassosub', 'Lasso −'], ['aisub', 'Bereich entfernen']].map(([k, lb]) => chip(`data-cutmode="${k}"`, lb, ui.cutMode === k)).join('')}</div>
     ${ai ? `<p class="note">${ui.cutMode === 'ai' ? '<b>Tippe aufs Motiv</b> – Person, Tier oder Gegenstand wird automatisch erkannt. Nochmal tippen fügt weitere Teile hinzu.' : '<b>Tippe auf einen Bereich</b>, der nicht zum Motiv gehören soll.'} Die Erkennung läuft auf deinem Gerät, es wird nichts hochgeladen.</p>`
+      : /^lasso/.test(ui.cutMode) ? `<p class="note"><b>Umfahre einen Bereich</b> mit dem Finger – er wird ${ui.cutMode === 'lasso' ? 'zum Motiv hinzugefügt' : 'vom Motiv abgezogen'}.</p>`
       : group('', slider('ui.cutSize', 'Pinselgröße', 1, 25, .5, 'n', 5)) + (ui.cutMode === 'add' ? toggle('cutsmart', 'Kantenerkennung beim Malen (nur ähnliche Farben)', ui.cutSmart) : '')}
     ${n ? group('Kante', toggle('cutrefine', 'Kanten an Farben anpassen (Haare, Fell)', !!l.cut.refine) + slider('cut.feather', 'Weichheit', 0, 10, .5, 'd1', 0) + slider('cut.shift', 'Kante schrumpfen / erweitern', -10, 10, .5, 'd1', 0)) : ''}
     ${group('Ansicht', `<div class="chips">${[['dim', 'Hintergrund abdunkeln'], ['red', 'Maske rot'], ['off', 'Normal']].map(([k, lb]) => chip(`data-cutview="${k}"`, lb, ui.cutView === k)).join('')}</div>`)}
@@ -911,6 +1064,35 @@ const IMAGE_PANELS = {
       + (l.sticker ? slider('l.stickerBorder', 'Sticker-Rand', 0, 5, .1, 'd1', 1.6) + swatches('frame', ['#ffffff', '#111111', '#f2c14e', '#ff7eb6', '#3f7fe0'], l.borderColor) + toggle('stickershadow', 'Schatten', l.stickerShadow !== false) : ''))}
     <div class="row">${btn('cutUndo', 'Letzten Schritt entfernen', 'ghost', n ? '' : 'disabled')}${btn('cutClear', 'Alles löschen', 'danger', n ? '' : 'disabled')}${btn('cutCopy', 'Motiv als eigene Ebene', 'ghost', n ? '' : 'disabled')}</div>
     <p class="note">Text hinter dem Motiv: Text über das Foto legen – das Motiv bleibt davor. Für feine Stellen reinzoomen (zwei Finger) und mit „Malen“/„Radieren“ nacharbeiten.</p>`; },
+  entfernen: (l, p) => `<p class="note"><b>Tippe auf ein Objekt</b> oder <b>übermale es</b> – Personen, Mülleimer, Kabel, Flecken. Die Stelle wird von der KI passend aufgefüllt, auf deinem Gerät.</p>
+    ${group('', slider('ui.erSize', 'Pinselgröße', 1, 15, .5, 'n', 4))}
+    <p class="note">${p.erase.length ? `<b>${p.erase.length}</b> Objekt${p.erase.length === 1 ? '' : 'e'} entfernt. ` : ''}Beim ersten Mal lädt das KI-Modell einmalig (ca. 40 MB), danach geht es offline.</p>
+    <div class="row">${btn('eraseUndo', 'Letzte zurücknehmen', 'ghost', p.erase.length ? '' : 'disabled')}${btn('eraseClear', 'Alle zurücknehmen', 'danger', p.erase.length ? '' : 'disabled')}</div>`,
+  klonen: (l, p) => `<div class="chips">${chip('data-clonemode="src"', '⊕ Quelle wählen', ui.cloneMode === 'src' || !ui.cloneSrc)}${chip('data-clonemode="paint"', 'Malen', ui.cloneMode === 'paint' && !!ui.cloneSrc)}</div>
+    ${group('', slider('ui.cloneSize', 'Pinselgröße', .5, 12, .1, 'n', 3))}
+    <p class="note">${ui.cloneSrc ? 'Male dort, wo die Kopie hin soll – das Kreuz zeigt, woher kopiert wird.' : '<b>Tippe zuerst auf die Stelle</b>, von der kopiert werden soll.'} Wie der Kopierstempel in Photoshop.</p>
+    <div class="row">${btn('cloneUndo', 'Letzten Strich entfernen', 'ghost', p.clone.length ? '' : 'disabled')}${btn('cloneClear', 'Alle Striche löschen', 'danger', p.clone.length ? '' : 'disabled')}</div>`,
+  gesicht: (l, p) => `${p.skin.d ? '' : `<p class="note">${ui.skinBusy ? 'Haut wird erkannt …' : 'Noch keine Haut erkannt.'}</p>`}
+    ${group('Haut', slider('sk.amt', 'Glätten', 0, 100, 1, 'n', 0) + slider('sk.glow', 'Strahlen', 0, 100, 1, 'n', 0))}
+    <p class="note">Glättet nur erkannte Haut, Kanten wie Augen, Lippen und Haare bleiben scharf. Läuft auf dem Gerät.</p>
+    <div class="row">${btn('skinDetect', p.skin.d ? 'Neu erkennen' : 'Haut erkennen')}</div>`,
+  hintergrund: (l, p) => { const has = l.cut && l.cut.strokes.length, b = l.bgx || { mode: 'none' };
+    if (!has) return `<p class="note">Dafür wird das Motiv vom Hintergrund getrennt.</p><div class="row">${btn('autoCut', '✨ Motiv automatisch erkennen', 'primary')}${btn('goCut', 'Selbst freistellen')}</div>`;
+    const others = otherPhotos(l);
+    return `<div class="chips">${[['none', 'Original'], ['blur', 'Unscharf'], ['mono', 'Color Pop'], ['color', 'Farbe'], ['photo', 'Anderes Foto'], ['clear', 'Transparent']].map(([k, lb]) => chip(`data-bgx="${k}"`, lb, k === 'clear' ? !!l.sticker : !l.sticker && (b.mode || 'none') === k)).join('')}</div>
+    ${b.mode === 'blur' && !l.sticker ? group('', slider('bgx.amt', 'Unschärfe', 0, 100, 1, 'n', 60)) : ''}
+    ${b.mode === 'color' && !l.sticker ? group('Farbe', swatches('bgx', ['#ffffff', '#111111', '#f2c14e', '#ff7eb6', '#7ec8ff', '#a8e6a1', '#efece6'], b.color)) : ''}
+    ${b.mode === 'photo' && !l.sticker ? group('Foto', others.length ? `<div class="chips">${others.map(o => chip(`data-bgsrc="${o.srcId}"`, o.name, b.src === o.srcId)).join('')}</div>` + slider('bgx.zoom', 'Zoom', 1, 3, .01, 'x', 1) : '<p class="note">Füge dem Projekt ein weiteres Foto hinzu.</p>') : ''}
+    ${b.mode && b.mode !== 'none' && !l.sticker ? group('', slider('bgx.dim', 'Hintergrund abdunkeln ↔ aufhellen', -100, 100, 1)) : ''}
+    <p class="note">Die Motivkante verfeinerst du unter „Freistellen“.</p>`; },
+  kreativ: (l, p) => { const db = l.dbl, others = otherPhotos(l);
+    return group('Tonaler Kontrast', slider('p.tonHi', 'Lichter', -100, 100, 1) + slider('p.tonMid', 'Mitten', -100, 100, 1) + slider('p.tonLo', 'Tiefen', -100, 100, 1))
+    + group('Stil', slider('p.drama', 'Drama', 0, 100, 1) + slider('p.grunge', 'Grunge', 0, 100, 1) + slider('p.glitch', 'Glitch', 0, 100, 1))
+    + group('Doppelbelichtung', others.length ? `<div class="chips">${chip('data-dbl=""', 'Aus', !db)}${others.map(o => chip(`data-dbl="${o.srcId}"`, o.name, db && db.src === o.srcId)).join('')}</div>`
+      + (db ? `<div class="chips">${[['screen', 'Aufhellen'], ['lighten', 'Hellere Farbe'], ['overlay', 'Ineinander'], ['multiply', 'Multiplizieren']].map(([k, lb]) => chip(`data-dblmode="${k}"`, lb, (db.mode || 'screen') === k)).join('')}</div>
+        ${slider('dbl.amt', 'Stärke', 0, 100, 1, 'n', 70)}${slider('dbl.zoom', 'Zoom', 1, 3, .01, 'x', 1)}${slider('dbl.px', 'Position waagerecht', 0, 100, 1, 'pct', 50, 100)}${slider('dbl.py', 'Position senkrecht', 0, 100, 1, 'pct', 50, 100)}
+        ${toggle('dblin', 'Nur im Motiv (Silhouette)', !!db.inside)}${db.inside && !(l.cut && l.cut.strokes.length) ? `<div class="row">${btn('autoCut', '✨ Motiv erkennen')}</div>` : ''}` : '')
+      : '<p class="note">Füge dem Projekt ein zweites Foto hinzu – es wird dann über dieses gelegt.</p>'); },
   pinsel: (l, p) => `<div class="chips">${BRUSH_MODES.map(([k, lb]) => chip(`data-bmode="${k}"`, lb, ui.brushMode === k)).join('')}</div>
     ${group('', slider('ui.brushSize', 'Pinselgröße', 1, 30, .5, 'n', 6) + slider('ui.brushStrength', 'Stärke', 5, 100, 1, 'pct', 50))}
     <p class="note">Male direkt auf das Foto – wie der Pinsel in Snapseed. Mehrfach drübermalen verstärkt.</p>
@@ -1006,6 +1188,7 @@ panel.addEventListener('click', async e => {
     if (k === 'grad') { state.bg.grad = on; if (state.tpl) state.tpl.bgLock = true; } else if (k === 'grid') { ui.grid = on; renderPanel(); requestRender(); return; }
     else if (k === 'stamp') l.params.stamp = on; else if (k === 'shadow' || k === 'tshadow') l.shadow = on; else if (k === 'upper') l.upper = on; else if (k === 'glow') l.glow = on;
     else if (k === 'outline') l.outline = on; else if (k === 'cutsmart') { ui.cutSmart = on; renderPanel(); return; } else if (k === 'cutrefine') l.cut.refine = on; else if (k === 'stickershadow') l.stickerShadow = on; else if (k === 'cutshow') { ui.cutShow = on; renderPanel(); requestRender(); return; }
+    else if (k === 'dblin') l.dbl.inside = on;
     else if (k === 'cuton') l.cut.on = on; else if (k === 'sticker') { l.sticker = on; if (on && !(l.cut && l.cut.strokes.length)) toast('Male jetzt über das Motiv – nur das wird zum Sticker'); } else if (k === 'minv') l.params.masks[ui.maskSel].inv = on;
     commit();
   }
@@ -1027,7 +1210,7 @@ panel.addEventListener('click', async e => {
     else if (d.al === 't') l.y = m + b.oh / 2; else if (d.al === 'm') l.y = H / 2; else l.y = H - m - b.oh / 2; commit(); }
   else if (d.lookcat) { ui.lookCat = d.lookcat; renderPanel(); }
   else if (d.look) { const was = l.params.look; l.params.look = d.look; if (LOOKS[d.look].stamp && was !== d.look) l.params.stamp = true; if (!LOOKS[d.look].stamp && LOOKS[was]?.stamp) l.params.stamp = false; commit(); }
-  else if (d.preset) { const pr = loadPresets()[+d.preset]; if (pr) { l.params = upgradeParams(clone(pr.params)); toast(`Preset „${pr.name}“ angewendet`); commit(); } }
+  else if (d.preset) { const pr = loadPresets()[+d.preset]; if (pr) { const o = l.params; l.params = upgradeParams(clone(pr.params)); Object.assign(l.params, { heal: o.heal, brush: o.brush, masks: o.masks, clone: o.clone || [], erase: o.erase || [] }); l.params.skin.d = o.skin && o.skin.d; toast(`Preset „${pr.name}“ angewendet`); commit(); } }
   else if (d.band) { ui.hslBand = +d.band; renderPanel(); }
   else if (d.grade) { ui.gradeRange = d.grade; renderPanel(); }
   else if (d.curve) { ui.curveCh = d.curve; renderPanel(); }
@@ -1061,6 +1244,13 @@ panel.addEventListener('click', async e => {
     else if (d.addtext === 'handle') { s.y = H * .94; selectLayer(s.id); pushHistory(); setTimeout(() => $('#txtIn')?.select(), 50); toast('Tipp: unter „Ebene“ → „Auf jede Slide kopieren“'); }
     else { selectLayer(s.id); pushHistory(); } }
   else if (d.pick) { selectLayer(+d.pick); }
+  else if (d.aimask) { addAiMask(l, d.aimask); }
+  else if (d.clonemode) { ui.cloneMode = d.clonemode; if (d.clonemode === 'src') { ui.cloneSrc = null; ui.cloneOff = null; } renderPanel(); updateTop(); }
+  else if (d.bgx) { if (d.bgx === 'clear') { l.sticker = true; l.bgx = { ...(l.bgx || {}), mode: 'none' }; } else { l.sticker = false; l.bgx = { ...(l.bgx || {}), mode: d.bgx }; if (d.bgx === 'photo' && !l.bgx.src) l.bgx.src = otherPhotos(l)[0]?.srcId; if (d.bgx === 'color' && !l.bgx.color) l.bgx.color = '#ffffff'; } commit(); }
+  else if (d.bgsrc) { l.bgx.src = d.bgsrc; commit(); }
+  else if (d.dbl != null) { l.dbl = d.dbl ? { mode: 'screen', amt: 70, zoom: 1, px: .5, py: .5, ...(l.dbl || {}), src: d.dbl } : null; commit(); }
+  else if (d.dblmode) { l.dbl.mode = d.dblmode; commit(); }
+  else if (d.hist) { goHistory(+d.hist); }
   else if (d.goslide) { goSlide(+d.goslide); setTimeout(renderPanel, 300); }
   else if (d.lvis) { const x = state.layers.find(y => y.id === +d.lvis); x.hidden = !x.hidden; commit(); }
   else if (d.llock) { const x = state.layers.find(y => y.id === +d.llock); x.locked = !x.locked; commit(); }
@@ -1123,14 +1313,22 @@ function action(a, l) {
     case 'dup': { const c = unlinked(clone(l)); c.id = newId(); c.x += 60; c.y += 60; c.locked = false; state.layers.splice(state.layers.indexOf(l) + 1, 0, c); ui.sel = c.id; commit(); return; }
     case 'del': state.layers = state.layers.filter(x => x !== l); if (!state.layers.some(x => cacheKey(x) === cacheKey(l))) cache.delete(cacheKey(l)); ui.sel = null; commit(); toast('Gelöscht', 'Rückgängig', undo); return;
     case 'copy': ui.clip = clone(l.params); toast('Bearbeitung kopiert'); renderPanel(); return;
-    case 'paste': if (ui.clip) { const keep = { heal: P.heal, brush: P.brush, masks: P.masks }; l.params = upgradeParams(clone(ui.clip)); Object.assign(l.params, keep); commit(); toast('Bearbeitung eingefügt'); } return;
-    case 'applyAll': state.layers.filter(x => x.type === 'image' && x !== l).forEach(x => { const keep = { heal: x.params.heal, brush: x.params.brush, masks: x.params.masks }; x.params = clone(l.params); Object.assign(x.params, keep); }); commit(); toast('Auf alle Fotos übertragen'); return;
-    case 'savePreset': { const name = ($('#presetName').value || '').trim() || `Preset ${loadPresets().length + 1}`; const ps = loadPresets(), pp = clone(P); pp.heal = []; pp.brush = []; pp.masks = []; pp.persp = { v: 0, h: 0 }; ps.push({ name, params: pp }); savePresets(ps); renderPanel(); toast(`„${name}“ gesichert`); return; }
+    case 'paste': if (ui.clip) { const keep = { heal: P.heal, brush: P.brush, masks: P.masks, clone: P.clone, erase: P.erase, skin: { ...(ui.clip.skin || {}), d: P.skin && P.skin.d } }; l.params = upgradeParams(clone(ui.clip)); Object.assign(l.params, keep); commit(); toast('Bearbeitung eingefügt'); } return;
+    case 'applyAll': state.layers.filter(x => x.type === 'image' && x !== l).forEach(x => { const keep = { heal: x.params.heal, brush: x.params.brush, masks: x.params.masks, clone: x.params.clone || [], erase: x.params.erase || [], skin: { ...l.params.skin, d: x.params.skin && x.params.skin.d } }; x.params = clone(l.params); Object.assign(x.params, keep); }); commit(); toast('Auf alle Fotos übertragen'); return;
+    case 'savePreset': { const name = ($('#presetName').value || '').trim() || `Preset ${loadPresets().length + 1}`; const ps = loadPresets(), pp = clone(P); pp.heal = []; pp.brush = []; pp.masks = []; pp.clone = []; pp.erase = []; if (pp.skin) pp.skin.d = null; pp.persp = { v: 0, h: 0 }; ps.push({ name, params: pp }); savePresets(ps); renderPanel(); toast(`„${name}“ gesichert`); return; }
     case 'clearPresets': if (!ui.confirmPresets) { ui.confirmPresets = true; renderPanel(); return; } ui.confirmPresets = false; savePresets([]); renderPanel(); toast('Presets gelöscht'); return;
     case 'exportPresets': { const blob = new Blob([JSON.stringify({ streifzug: 1, presets: loadPresets() }, null, 1)], { type: 'application/json' }); webSave([{ blob, name: 'streifzug-presets.json' }]); return; }
     case 'maskDel': P.masks.splice(ui.maskSel, 1); ui.maskSel = Math.max(0, ui.maskSel - 1); commit(); return;
     case 'maskDup': { const m = clone(P.masks[ui.maskSel]); m.x = clamp(m.x + .05); m.y = clamp(m.y + .05); P.masks.push(m); ui.maskSel = P.masks.length - 1; commit(); return; }
     case 'cutUndo': l.cut.strokes.pop(); commit(); return;
+    case 'lassoMask': ui.lasso = !ui.lasso; renderPanel(); updateTop(); if (ui.lasso) toast('Umfahre den Bereich mit dem Finger'); return;
+    case 'eraseUndo': P.erase.pop(); commit(); return;
+    case 'eraseClear': P.erase = []; commit(); toast('Alle Entfernungen zurückgenommen', 'Rückgängig', undo); return;
+    case 'cloneUndo': P.clone.pop(); commit(); return;
+    case 'cloneClear': P.clone = []; commit(); return;
+    case 'skinDetect': detectSkin(l, true); return;
+    case 'autoCut': autoCut(l); return;
+    case 'goCut': ui.sub = ui.sub || {}; ui.sub.werkzeuge = 'freistellen'; ui.tab.image = 'freistellen'; renderUI(); return;
     case 'cutCopy': { const c = unlinked(clone(l)); c.id = newId(); c.sticker = true; c.stickerBorder = 0; c.shape = 'rect'; c.border = 0; c.edge = undefined; c.x += W * .06; c.y -= H * .03; c.locked = false;
       state.layers.splice(state.layers.indexOf(l) + 1, 0, c); ui.tab.image = 'rahmen'; ui.sel = c.id; commit(); toast('Motiv als eigene Ebene – frei verschieben, vergrößern, Rand geben'); return; }
     case 'cutClear': l.cut = { on: true, strokes: [] }; commit(); return;
@@ -1383,7 +1581,11 @@ $('#closeExport').addEventListener('click', () => $('#exportSheet').hidden = tru
 $('#closePreview').addEventListener('click', () => $('#previewSheet').hidden = true);
 $('#previewBtn').addEventListener('click', openPreview);
 $('#exportBtn').addEventListener('click', doExport);
-$('#undoBtn').addEventListener('click', undo);
+$('#undoBtn').addEventListener('click', () => { if (performance.now() - (undoLP.t || 0) < 600) return; undo(); });
+const undoLP = { timer: 0, t: 0 };
+$('#undoBtn').addEventListener('pointerdown', e => { clearTimeout(undoLP.timer); undoLP.timer = setTimeout(() => { if (hist.length < 2) return; undoLP.t = performance.now(); haptic(); const r = $('#undoBtn').getBoundingClientRect(); openMenu(historyItems(), r.left + r.width / 2 + 125, r.bottom + 6, 'tr'); }, 450); });
+['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => $('#undoBtn').addEventListener(ev, () => clearTimeout(undoLP.timer)));
+$('#undoBtn').addEventListener('contextmenu', e => { e.preventDefault(); if (hist.length < 2) return; undoLP.t = performance.now(); const r = $('#undoBtn').getBoundingClientRect(); openMenu(historyItems(), r.left + r.width / 2 + 125, r.bottom + 6, 'tr'); });
 $('#redoBtn').addEventListener('click', redo);
 document.addEventListener('keydown', e => {
   if (e.target.matches('input,textarea')) return;
@@ -1398,7 +1600,7 @@ document.addEventListener('keydown', e => {
 });
 let keyT;
 /* ---------- Kopieren & Einfügen ---------- */
-const VERSION = 34;
+const VERSION = 35;
 const CLIP_MARK = 'streifzug-ebene:';
 function copyLayer(l) {
   ui.layerClip = clone(l); LS.set('layerClip', ui.layerClip); haptic();
@@ -1497,4 +1699,5 @@ if (document.fonts) {
 }
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').then(reg => reg.addEventListener('updatefound', () => { const w = reg.installing; w && w.addEventListener('statechange', () => { if (w.state === 'activated' && navigator.serviceWorker.controller) toast('Neue Version von Streifzug ist da', 'Neu laden', () => { saveNow(); setTimeout(() => location.reload(), 300); }); }); })).catch(() => {});
 window.__streifzug = { openTab: k => { ui.tab[mode() === 'image' ? 'image' : mode()] = k; renderUI(); }, state, ui, view, sources, cache, action, applyTemplate, layout, fit, selectLayer, commit, render, runSegment, addFiles, saveNow, openProject,
+  runErase, addAiMask, detectSkin, autoCut, goHistory, hist: () => [hist.length, hIdx, histLbl.map(x => x.l)],
   snapshot: (h = 360) => { const { W, H } = dims(), T = W * state.slides, c = mk(T * h / H, h), x = c.getContext('2d'); x.scale(h / H, h / H); drawScene(x, { clean: true }); return c.toDataURL('image/jpeg', .85); } };

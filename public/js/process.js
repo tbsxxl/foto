@@ -15,6 +15,8 @@ export function eff(p) {
     vig: both('vignette'), vigSize: (p.vigSize ?? 50) / 100, gr: pos('grain'), grSize: (p.grainSize ?? 25) / 100, fade: pos('fade'),
     glow: pos('glow'), hal: pos('halation'), ca: pos('ca'), leak: pos('leak'), leakKind: p.leak ? p.leakKind : (L.leakKind || 0),
     dust: pos('dust'), lowres: pos('lowres'),
+    tonH: u('tonHi'), tonM: u('tonMid'), tonL: u('tonLo'), dr: u('drama'), grunge: pos('grunge'), glitch: pos('glitch'),
+    skin: p.skin && p.skin.d && (p.skin.amt || p.skin.glow) ? p.skin : null,
     mono: L.mono ? a : 0, monoTone: L.monoTone || null, monoMix: L.monoMix || null,
     mixM: L.mix ? L.mix.map((row, i) => row.map((v, j) => (i === j ? 1 : 0) + (v - (i === j ? 1 : 0)) * a)) : null,
     lcurve: L.curve ? L.curve.map((v, i) => ID_CURVE[i] + (v - ID_CURVE[i]) * a) : null,
@@ -145,9 +147,14 @@ export function processImage(aux, p, stampMs) {
   const { w, h, data: d, M } = aux, e = eff(p), tone = toneLUT(e), ch = chLUTs(e);
   const out = new ImageData(w, h), o = out.data;
   const wr = 1 + .18 * e.temp + .05 * e.tint, wg = 1 - .1 * e.tint, wb = 1 - .18 * e.temp + .05 * e.tint;
-  const masks = e.masks.filter(m => m.ex || m.co || m.sat || m.temp || m.st).map(m => ({ ...m, px: m.x * w, py: m.y * h, R1: Math.max(1, m.rx * M), R2: Math.max(1, (m.ry ?? m.rx) * M), c: Math.cos(m.angle || 0), s: Math.sin(m.angle || 0), f: Math.max(.02, m.feather ?? .5) }));
-  const maskSt = masks.some(m => m.st);
-  const lum = (e.st || e.cl || e.tx || e.shp || e.dn || maskSt) ? lumOf(aux) : null;
+  const masks = e.masks.filter(m => m.ex || m.co || m.sat || m.temp || m.st).map(m => ({ ...m, px: m.x * w, py: m.y * h, R1: Math.max(1, m.rx * M), R2: Math.max(1, (m.ry ?? m.rx) * M), c: Math.cos(m.angle || 0), s: Math.sin(m.angle || 0), f: Math.max(.02, m.feather ?? .5),
+    wm: m.kind === 'ai' || m.kind === 'lasso' ? regionMap(aux, m) : null })).filter(m => !(m.kind === 'ai' || m.kind === 'lasso') || m.wm);
+  const maskSt = masks.some(m => m.st), ton = e.tonH || e.tonM || e.tonL;
+  const lum = (e.st || e.cl || e.tx || e.shp || e.dn || maskSt || ton || e.dr) ? lumOf(aux) : null;
+  const bT = ton ? lumBlur(aux, Math.max(2, Math.round(M / 70))) : null, bD = e.dr ? lumBlur(aux, Math.max(4, Math.round(M / 14))) : null;
+  // Hautglättung: kantenerhaltend weichzeichnen, nur auf erkannter Haut
+  const skinM = e.skin ? maskData(e.skin.d, w, h) : null, skinR = Math.max(2, Math.round(M / 260)), skinB = skinM && e.skin.amt ? rgbBlur(aux, skinR) : null,
+    skinL = skinB ? lumBlur(aux, skinR) : null, lumA = skinB ? lumOf(aux) : null, skA = e.skin ? (e.skin.amt || 0) / 100 : 0, skG = e.skin ? (e.skin.glow || 0) / 100 : 0;
   const bM = (e.st || maskSt) ? lumBlur(aux, Math.max(2, Math.round(M / 90))) : null;
   const bL = e.cl ? lumBlur(aux, Math.max(3, Math.round(M / 28))) : null;
   const bS = e.tx ? lumBlur(aux, Math.max(1, Math.round(M / 320))) : null;
@@ -168,6 +175,7 @@ export function processImage(aux, p, stampMs) {
       const pi = y * w + x, i = pi * 4;
       let r = d[i] / 255, g = d[i + 1] / 255, b = d[i + 2] / 255;
       if (rgbB) { const edge = Math.min(1, Math.abs(lum[pi] - bX[pi]) * 14), k = e.dn * .9 * (1 - edge); r += (rgbB[0][pi] - r) * k; g += (rgbB[1][pi] - g) * k; b += (rgbB[2][pi] - b) * k; }
+      if (skinB) { const sv = skinM[pi]; if (sv > .02) { const edge = Math.min(1, Math.abs(lumA[pi] - skinL[pi]) * 7), k = skA * sv * (1 - edge) * .92; r += (skinB[0][pi] - r) * k; g += (skinB[1][pi] - g) * k; b += (skinB[2][pi] - b) * k; } }
       r *= wr; g *= wg; b *= wb;
       if (MX) { const r0 = r, g0 = g, b0 = b; r = MX[0][0] * r0 + MX[0][1] * g0 + MX[0][2] * b0; g = MX[1][0] * r0 + MX[1][1] * g0 + MX[1][2] * b0; b = MX[2][0] * r0 + MX[2][1] * g0 + MX[2][2] * b0; }
       let L = .2126 * r + .7152 * g + .0722 * b; if (L > 1) L = 1;
@@ -176,7 +184,8 @@ export function processImage(aux, p, stampMs) {
       let lex = 0, lco = 0, lsat = 0, ltemp = 0, lst = 0;
       for (let q = 0; q < masks.length; q++) {
         const m = masks[q], dx = x - m.px, dy = y - m.py; let wt;
-        if (m.kind === 'linear') { const s = (dx * m.c + dy * m.s) / m.R1; wt = smooth(clamp(.5 - s * .5 / m.f)); }
+        if (m.wm) wt = m.wm[pi];
+        else if (m.kind === 'linear') { const s = (dx * m.c + dy * m.s) / m.R1; wt = smooth(clamp(.5 - s * .5 / m.f)); }
         else { const u = (dx * m.c + dy * m.s) / m.R1, v = (-dx * m.s + dy * m.c) / m.R2, dd = Math.sqrt(u * u + v * v); wt = dd >= 1 ? 0 : dd <= 1 - m.f ? 1 : smooth((1 - dd) / m.f); }
         if (m.inv) wt = 1 - wt;
         if (wt > 0) { lex += (m.ex || 0) * wt; lco += (m.co || 0) * wt; lsat += (m.sat || 0) * wt; ltemp += (m.temp || 0) * wt; lst += (m.st || 0) * wt; }
@@ -191,11 +200,14 @@ export function processImage(aux, p, stampMs) {
         if (bL) t += (lv - bL[pi]) * e.cl * 1.5 * (.3 + 2.8 * t * (1 - t));
         if (bS) t += (lv - bS[pi]) * e.tx * 2.2;
         if (e.shp) t += (lv - bX[pi]) * e.shp * 3;
+        if (bT) { const wl = (1 - t) * (1 - t), wh = t * t, wm = 1 - wl - wh; t += (lv - bT[pi]) * (e.tonH * wh + e.tonM * wm + e.tonL * wl) * 3.4; }
+        if (bD) t += (lv - bD[pi]) * e.dr * 2.6 * (.35 + 2.6 * t * (1 - t));
         t = t < 0 ? 0 : t > 1 ? 1 : t;
       }
       if (L > .0005) { const k = t / L; r *= k; g *= k; b *= k; } else { r = g = b = t; }
       if (dark) { const tt = Math.max(.15, 1 - .9 * dh * dark[pi]), A = .92; r = (r - A * (1 - tt)) / tt; g = (g - A * (1 - tt)) / tt; b = (b - A * (1 - tt)) / tt; }
       else if (dh < 0) { const k = -dh * .55; r += (.86 - r) * k; g += (.87 - g) * k; b += (.89 - b) * k; }
+      if (skG && skinM) lex += skG * .5 * skinM[pi];
       if (lex) { const f = Math.pow(2, lex); r *= f; g *= f; b *= f; }
       if (lco) { const f = 1 + lco; r = (r - .5) * f + .5; g = (g - .5) * f + .5; b = (b - .5) * f + .5; }
       if (ltemp) { r *= 1 + .2 * ltemp; b *= 1 - .2 * ltemp; }
@@ -203,6 +215,7 @@ export function processImage(aux, p, stampMs) {
       const mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
       let k = satK * (1 + vib * (1 - Math.min(1, (mx - mn) * 1.6))) * (1 + lsat);
       if (dark) k *= 1 + .3 * dh;
+      if (e.dr) k *= 1 - .5 * e.dr;
       if (mono && mmx) { const g2 = r * mmx[0] + g * mmx[1] + b * mmx[2]; r += (g2 - r) * mono; g += (g2 - g) * mono; b += (g2 - b) * mono; gray = .2126 * r + .7152 * g + .0722 * b; }
       if (mono) k *= (1 - mono);
       if (k !== 1) { if (k < 0) k = 0; r = gray + (r - gray) * k; g = gray + (g - gray) * k; b = gray + (b - gray) * k; }
@@ -240,10 +253,58 @@ export function processImage(aux, p, stampMs) {
   if (e.hal) { const hm = brightMask(c, 'hal'); x.save(); x.globalCompositeOperation = 'screen'; x.globalAlpha = Math.min(1, e.hal * 1.1); x.drawImage(hm, 0, 0, w, h); x.restore(); }
   if (e.glow) { const gb = brightMask(c, 'glow'); x.save(); x.globalCompositeOperation = 'screen'; x.globalAlpha = Math.min(1, e.glow * .8); x.drawImage(gb, 0, 0, w, h); x.restore(); }
   if (e.blur && e.blur.mode !== 'off' && e.blur.amt > 0) lensBlur(c, e.blur, M);
+  if (e.grunge) drawGrunge(x, w, h, e.grunge);
   if (e.leak) drawLeak(x, w, h, e.leakKind, e.leak);
   if (e.dust) drawDust(x, w, h, e.dust);
+  if (e.glitch) glitchFx(x, w, h, e.glitch);
   if (e.stamp) drawStamp(x, w, h, stampMs, e.stampStyle);
   return c;
+}
+/* Gewichtskarte für KI- und Lasso-Masken in Bildgröße (mit weicher Kante), je Hilfsbild zwischengespeichert */
+function regionMap(aux, m) {
+  const { w, h, M } = aux, key = (m.d ? 'd' + m.d.length + m.d.slice(-48) : 'l' + JSON.stringify(m.pts)) + '|' + (m.feather ?? .1);
+  aux.rm = aux.rm || new Map(); if (aux.rm.has(key)) return aux.rm.get(key);
+  let a = null;
+  if (m.kind === 'ai') { const md = maskData(m.d, w, h); if (!md) return null; a = md; }
+  else { const c = mk(w, h), x = c.getContext('2d', { willReadFrequently: true }), pts = m.pts || []; if (pts.length < 6) return null;
+    x.fillStyle = '#fff'; x.beginPath(); x.moveTo(pts[0] * w, pts[1] * h); for (let i = 2; i < pts.length; i += 2) x.lineTo(pts[i] * w, pts[i + 1] * h); x.closePath(); x.fill();
+    const d = x.getImageData(0, 0, w, h).data; a = new Float32Array(w * h); for (let i = 0; i < a.length; i++) a[i] = d[i * 4 + 3] / 255; }
+  const r = Math.round((m.feather ?? .1) * M * .05); if (r >= 1) a = boxBlur(boxBlur(a, w, h, r), w, h, r);
+  aux.rm.set(key, a); if (aux.rm.size > 8) aux.rm.delete(aux.rm.keys().next().value);
+  return a;
+}
+/* Grunge: fleckige Struktur, Kratzer, gealterte Farbe */
+const grungeTex = new Map();
+function drawGrunge(x, w, h, a) {
+  const tw = Math.max(64, Math.round(w / 3)), th = Math.max(64, Math.round(h / 3)), key = tw + 'x' + th; let t = grungeTex.get(key);
+  if (!t) { t = mk(tw, th); const tx = t.getContext('2d'), id = tx.createImageData(tw, th), d = id.data, r = seeded(5);
+    const oct = [[6, .5], [14, .27], [34, .15], [90, .08]];
+    for (let y = 0; y < th; y++) for (let xx = 0; xx < tw; xx++) { let v = 0;
+      for (const [f, amp] of oct) { const fx = xx / tw * f, fy = y / th * f, x0 = Math.floor(fx), y0 = Math.floor(fy), sx = fx - x0, sy = fy - y0, s1 = sx * sx * (3 - 2 * sx), s2 = sy * sy * (3 - 2 * sy);
+        const h00 = hash(x0, y0 + f * 97), h10 = hash(x0 + 1, y0 + f * 97), h01 = hash(x0, y0 + 1 + f * 97), h11 = hash(x0 + 1, y0 + 1 + f * 97);
+        v += ((h00 * (1 - s1) + h10 * s1) * (1 - s2) + (h01 * (1 - s1) + h11 * s1) * s2) * amp; }
+      v = clamp((v - .5) * 1.9 + .5); const j = (y * tw + xx) * 4; d[j] = d[j + 1] = d[j + 2] = v * 255; d[j + 3] = 255; }
+    tx.putImageData(id, 0, 0);
+    tx.lineCap = 'round'; for (let i = 0; i < 60; i++) { const px = r() * tw, py = r() * th, l = (.03 + r() * .12) * Math.max(tw, th), an = r() * Math.PI;
+      tx.strokeStyle = r() < .5 ? `rgba(255,255,255,${.25 + r() * .35})` : `rgba(0,0,0,${.2 + r() * .3})`; tx.lineWidth = .4 + r() * 1.1; tx.beginPath(); tx.moveTo(px, py); tx.lineTo(px + Math.cos(an) * l, py + Math.sin(an) * l); tx.stroke(); }
+    grungeTex.set(key, t); if (grungeTex.size > 4) grungeTex.delete(grungeTex.keys().next().value); }
+  x.save(); x.imageSmoothingQuality = 'high';
+  x.globalCompositeOperation = 'overlay'; x.globalAlpha = Math.min(1, a * .85); x.drawImage(t, 0, 0, w, h);
+  x.globalCompositeOperation = 'multiply'; x.globalAlpha = a * .35; x.fillStyle = '#b39a6a'; x.fillRect(0, 0, w, h);
+  x.globalCompositeOperation = 'source-over'; const g = x.createRadialGradient(w / 2, h / 2, Math.min(w, h) * .3, w / 2, h / 2, Math.max(w, h) * .75);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, `rgba(20,14,6,${.55 * a})`); x.globalAlpha = 1; x.fillStyle = g; x.fillRect(0, 0, w, h);
+  x.restore();
+}
+/* Glitch: verschobene Farbkanäle, versetzte Streifen, Zeilen */
+function glitchFx(x, w, h, a) {
+  const id = x.getImageData(0, 0, w, h), d = id.data, src = d.slice(), M = Math.max(w, h), off = Math.max(1, Math.round(a * M * .01)), r = seeded(23);
+  const shift = new Int32Array(h); const n = Math.round(4 + a * 14);
+  for (let k = 0; k < n; k++) { const y0 = Math.floor(r() * h), hh = Math.max(1, Math.round((.004 + r() * r() * .05) * h)), dx = Math.round((r() - .5) * 2 * a * M * .07); for (let y = y0; y < Math.min(h, y0 + hh); y++) shift[y] = dx; }
+  for (let y = 0; y < h; y++) { const sh = shift[y], line = (y % 3 === 0) ? 1 - a * .18 : 1;
+    for (let xx = 0; xx < w; xx++) { const j = (y * w + xx) * 4, bx = Math.min(w - 1, Math.max(0, xx - sh));
+      const rx = Math.min(w - 1, bx + off), gx = bx, bxx = Math.max(0, bx - off), row = y * w;
+      d[j] = src[(row + rx) * 4] * line; d[j + 1] = src[(row + gx) * 4 + 1] * line; d[j + 2] = src[(row + bxx) * 4 + 2] * line; } }
+  x.putImageData(id, 0, 0);
 }
 
 function chromaShift(o, w, h, amt) {
@@ -325,12 +386,39 @@ function drawStamp(ctx, w, h, ms, st) {
 
 /* ---------- Vorbereitung: Perspektive und Reparatur ---------- */
 export function prepare(orient, p) {
-  const pv = p.persp || { v: 0, h: 0 }, heal = p.heal || [];
-  if (!pv.v && !pv.h && !heal.length) return orient;
-  const w = orient.width, h = orient.height, src = orient.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h).data;
-  let out = pv.v || pv.h ? perspective(src, w, h, pv.v / 100, pv.h / 100) : new Uint8ClampedArray(src);
-  for (const s of heal) healSpot(out, w, h, s);
-  const c = mk(w, h); c.getContext('2d').putImageData(new ImageData(out, w, h), 0, 0); return c;
+  const pv = p.persp || { v: 0, h: 0 }, heal = p.heal || [], clone = p.clone || [], erase = p.erase || [];
+  if (!pv.v && !pv.h && !heal.length && !clone.length && !erase.length) return orient;
+  const w = orient.width, h = orient.height; let c;
+  if (pv.v || pv.h || heal.length || clone.length) {
+    const src = orient.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h).data;
+    let out = pv.v || pv.h ? perspective(src, w, h, pv.v / 100, pv.h / 100) : new Uint8ClampedArray(src);
+    for (const s of heal) healSpot(out, w, h, s);
+    for (const s of clone) cloneStroke(out, w, h, s);
+    c = mk(w, h); c.getContext('2d').putImageData(new ImageData(out, w, h), 0, 0);
+  } else { c = mk(w, h); c.getContext('2d').drawImage(orient, 0, 0); }
+  // entfernte Objekte: gespeicherte Füll-Patches darüberlegen
+  if (erase.length) { const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; for (const e of erase) { const im = patchImg(e.d); if (im) x.drawImage(im, e.x * w, e.y * h, e.w * w, e.h * h); } }
+  return c;
+}
+/* Kopierstempel: Pixel aus dem um (dx, dy) versetzten Bereich entlang des Strichs übertragen, weiche Pinselkante */
+function cloneStroke(o, w, h, s) {
+  const M = Math.max(w, h), R = Math.max(1.5, s.s * M), ox = Math.round(s.dx * w), oy = Math.round(s.dy * h), src = o.slice(), pts = s.p, hard = s.hard ?? .5, done = new Float32Array(w * h);
+  const dab = (cx, cy) => {
+    for (let y = Math.max(0, Math.floor(cy - R)); y <= Math.min(h - 1, Math.ceil(cy + R)); y++)
+      for (let x = Math.max(0, Math.floor(cx - R)); x <= Math.min(w - 1, Math.ceil(cx + R)); x++) {
+        const dd = Math.hypot(x - cx, y - cy) / R; if (dd >= 1) continue;
+        const wt = dd <= hard ? 1 : smooth((1 - dd) / (1 - hard)), pi = y * w + x; if (wt <= done[pi]) continue;
+        const sx = x + ox, sy = y + oy; if (sx < 0 || sy < 0 || sx >= w || sy >= h) continue;
+        const i = pi * 4, si = (sy * w + sx) * 4, a = (wt - done[pi]) / (1 - done[pi] + 1e-6); done[pi] = wt;
+        for (let c = 0; c < 3; c++) o[i + c] = o[i + c] * (1 - a) + src[si + c] * a;
+      }
+  };
+  for (let i = 0; i < pts.length; i += 2) {
+    const px = pts[i] * w, py = pts[i + 1] * h;
+    if (i >= 2) { const qx = pts[i - 2] * w, qy = pts[i - 1] * h, dist = Math.hypot(px - qx, py - qy), steps = Math.floor(dist / (R * .25));
+      for (let j = 1; j < steps; j++) dab(qx + (px - qx) * j / steps, qy + (py - qy) * j / steps); }
+    dab(px, py);
+  }
 }
 function perspective(s, w, h, v, hz) {
   const o = new Uint8ClampedArray(s.length), kv = v * .35, kh = hz * .35, z = 1 / (1 + Math.abs(kv) + Math.abs(kh));
@@ -391,7 +479,7 @@ export function wbFromPoint(canvas, x, y) {
 /* KI-Masken (Antippen) liegen als PNG im Projekt; Dekodieren ist asynchron, danach wird neu gezeichnet */
 export const cutHooks = { ver: 0, onReady: null };
 const maskImgs = new Map();
-function maskData(d, mw, mh) {
+export function maskData(d, mw, mh) {
   let e = maskImgs.get(d);
   if (!e) { e = { ready: false, sized: new Map() }; maskImgs.set(d, e); const im = new Image();
     im.onload = () => { e.img = im; e.ready = true; cutHooks.ver++; cutHooks.onReady && cutHooks.onReady(); }; im.onerror = () => { e.ready = true; e.bad = true; cutHooks.ver++; }; im.src = d; }
@@ -400,6 +488,23 @@ function maskData(d, mw, mh) {
   if (!m) { const c = mk(mw, mh), x = c.getContext('2d', { willReadFrequently: true }); x.imageSmoothingQuality = 'high'; x.drawImage(e.img, 0, 0, mw, mh);
     const px = x.getImageData(0, 0, mw, mh).data; m = new Float32Array(mw * mh); for (let i = 0; i < m.length; i++) m[i] = px[i * 4] / 255; e.sized.set(k, m); if (e.sized.size > 3) e.sized.delete(e.sized.keys().next().value); }
   return m;
+}
+/* Farb-Patches (Objekt entfernen) – ebenfalls asynchron dekodiert */
+const patchImgs = new Map();
+function patchImg(d) {
+  let e = patchImgs.get(d);
+  if (!e) { e = { ready: false }; patchImgs.set(d, e); const im = new Image();
+    im.onload = () => { e.img = im; e.ready = true; cutHooks.ver++; cutHooks.onReady && cutHooks.onReady(); }; im.onerror = () => { e.ready = true; e.bad = true; cutHooks.ver++; }; im.src = d; }
+  return e.ready && !e.bad ? e.img : null;
+}
+const imgReady = (d, isPatch) => { const e = (isPatch ? patchImgs : maskImgs).get(d); return !!(e && e.ready); };
+/* Anzahl noch nicht geladener Masken/Patches – fließt in die Cache-Schlüssel ein, damit nach dem Laden neu gerechnet wird */
+export function pendingAssets(p) {
+  let n = 0;
+  for (const e of p.erase || []) if (!imgReady(e.d, true)) { patchImg(e.d); n++; }
+  for (const m of p.masks || []) if (m.d && !imgReady(m.d)) { maskData(m.d, 1, 1); n++; }
+  if (p.skin && p.skin.d && !imgReady(p.skin.d)) { maskData(p.skin.d, 1, 1); n++; }
+  return n;
 }
 /* Rohes Modell-Ergebnis säubern: Unsicherheit → klare Kante, nur Bereiche behalten, die mit der angetippten Stelle verbunden sind */
 export function cleanMask(m, u, v) {
@@ -489,6 +594,9 @@ export function cutMask(src, strokes, opt = {}) {
   for (const st of strokes) {
     if (st.m === 'ai' || st.m === 'aisub') { const m = maskData(st.d, mw, mh); if (!m) { incomplete = true; continue; }
       if (st.m === 'ai') for (let i = 0; i < a.length; i++) a[i] = Math.max(a[i], m[i]); else for (let i = 0; i < a.length; i++) a[i] *= 1 - m[i]; continue; }
+    if (st.m === 'lasso' || st.m === 'lassosub') { const pts = st.p; if (pts.length < 6) continue; const lc = mk(mw, mh), lx = lc.getContext('2d', { willReadFrequently: true });
+      lx.fillStyle = '#fff'; lx.beginPath(); lx.moveTo(pts[0] * mw, pts[1] * mh); for (let i = 2; i < pts.length; i += 2) lx.lineTo(pts[i] * mw, pts[i + 1] * mh); lx.closePath(); lx.fill();
+      const ld = lx.getImageData(0, 0, mw, mh).data; if (st.m === 'lasso') for (let i = 0; i < a.length; i++) a[i] = Math.max(a[i], ld[i * 4 + 3] / 255); else for (let i = 0; i < a.length; i++) a[i] *= 1 - ld[i * 4 + 3] / 255; continue; }
     const R = Math.max(1.5, st.s * MM), erase = st.m === 'erase', smart = st.smart && !erase, pts = st.p;
     // Referenzfarbe: Startpunkt des Strichs; sie folgt nur weichen Farbverläufen, nicht über Kanten in den Hintergrund
     const col = (cx, cy) => { const i = (clamp(Math.round(cy), 0, mh - 1) * mw + clamp(Math.round(cx), 0, mw - 1)) * 4; return [ref[i], ref[i + 1], ref[i + 2]]; };

@@ -12,6 +12,12 @@ Foto-Web-App fürs iPhone (und jeden Browser), die vier Apps in einer vereint �
 
 Außerdem: Projekte werden automatisch im Browser gespeichert (IndexedDB), die App lässt sich über „Teilen → Zum Home-Bildschirm“ wie eine echte App installieren und funktioniert danach auch offline. Export als JPEG oder PNG (1080 px breit), optional zusätzlich als Panorama; auf dem iPhone landen alle Slides mit einem Tipp in den Fotos.
 
+## KI-Werkzeuge auf dem Gerät (kostenlos, offline nach dem ersten Laden)
+
+- **Objekt entfernen:** MI-GAN (ONNX Runtime Web, `public/vendor/migan`, `public/vendor/ort`) – antippen oder übermalen.
+- **Auswahl:** Himmel (Bildanalyse), Person/Haut (MediaPipe Selfie Multiclass), Motiv (Magic Touch), Lasso.
+- **Hintergrund ersetzen**, **Hautglättung**, **Kopierstempel**, **Verlauf**, Kreativ-Filter (Tonaler Kontrast, Drama, Grunge, Glitch, Doppelbelichtung).
+
 ## Bedienung in Kürze
 
 - Unten wählst du die Werkzeug-Gruppe, darüber die Unterreiter (z. B. Licht → Schnell / Licht & Histogramm / Kurve).

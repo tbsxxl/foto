@@ -119,7 +119,8 @@ export function defParams() {
     look: 'none', lookAmt: 100, stamp: false, stampStyle: { fmt: 'yy', color: 'orange', pos: 'br' }, auto: null,
     curves: { rgb: ID_CURVE.slice(), r: ID_CURVE.slice(), g: ID_CURVE.slice(), b: ID_CURVE.slice() }, hsl,
     grade: { sh: [220, 0], mid: [40, 0], hi: [40, 0], glob: [40, 0], bal: 0 },
-    persp: { v: 0, h: 0 }, masks: [], brush: [], heal: [],
+    persp: { v: 0, h: 0 }, masks: [], brush: [], heal: [], clone: [], erase: [],
+    tonHi: 0, tonMid: 0, tonLo: 0, drama: 0, grunge: 0, glitch: 0, skin: { amt: 0, glow: 0, d: null },
     blur: { mode: 'off', x: .5, y: .5, size: .22, feather: .25, amt: 55, angle: 0 }
   };
 }
@@ -127,7 +128,7 @@ export function defParams() {
 export function upgradeParams(p) {
   const d = defParams();
   for (const k in d) if (p[k] === undefined) p[k] = d[k];
-  for (const k of ['grade', 'persp', 'blur', 'stampStyle']) p[k] = Object.assign(clone(d[k]), p[k]);
+  for (const k of ['grade', 'persp', 'blur', 'stampStyle', 'skin']) p[k] = Object.assign(clone(d[k]), p[k]);
   return p;
 }
 
@@ -136,7 +137,7 @@ export const state = { format: '4:5', slides: 3, bg: { c1: '#efece6', c2: '#a8c5
 export const ui = {
   sel: null, tab: { none: 'canvas', image: 'looks', text: 'text', shape: 'form' }, showOrig: false, sample: true, hslBand: 0, curveCh: 'rgb', clip: null, guides: [],
   confirmClear: false, confirmPresets: false, lookCat: 'fuji', gradeRange: 'sh', tool: null, maskSel: 0, brushMode: 'dodge', brushSize: 6, brushStrength: 50,
-  healSize: 3, cutMode: 'ai', cutSize: 5, cutSmart: true, cutShow: true, cutView: 'dim', projectId: null, projectName: 'Mein Karussell', panelScroll: 0
+  healSize: 3, erSize: 4, cloneSize: 3, cloneMode: 'src', cutMode: 'ai', cutSize: 5, cutSmart: true, cutShow: true, cutView: 'dim', projectId: null, projectName: 'Mein Karussell', panelScroll: 0
 };
 export const sources = new Map();
 export const cache = new Map();
