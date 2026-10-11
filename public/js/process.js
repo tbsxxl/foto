@@ -1,7 +1,8 @@
 /* Bildverarbeitung: alles läuft auf der CPU bzw. mit Canvas-Resampling, damit es auch in Safari auf dem iPhone geht */
 import { clamp, smooth, seeded, LOOKS, HSL_BANDS, ID_CURVE, STAMP_COLORS, stampText } from './core.js';
 
-export const mk = (w, h) => { const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h)); return c; };
+export const IN_WORKER = typeof document === 'undefined';
+export const mk = (w, h) => { if (IN_WORKER) return new OffscreenCanvas(Math.max(1, Math.round(w)), Math.max(1, Math.round(h))); const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h)); return c; };
 
 export function eff(p) {
   const L = LOOKS[p.look] || LOOKS.none;
@@ -143,7 +144,7 @@ function tintVec(hdeg, s, k) {
 function hash(x, y) { let n = Math.imul(x, 374761393) + Math.imul(y, 668265263); n = Math.imul(n ^ (n >>> 13), 1274126177); n ^= n >>> 16; return (n >>> 0) / 4294967295; }
 
 /* ---------- Hauptfunktion ---------- */
-export function processImage(aux, p, stampMs) {
+export function processImage(aux, p, stampMs, opt = {}) {
   const { w, h, data: d, M } = aux, e = eff(p), tone = toneLUT(e), ch = chLUTs(e);
   const out = new ImageData(w, h), o = out.data;
   const wr = 1 + .18 * e.temp + .05 * e.tint, wg = 1 - .1 * e.tint, wb = 1 - .18 * e.temp + .05 * e.tint;
@@ -257,9 +258,12 @@ export function processImage(aux, p, stampMs) {
   if (e.leak) drawLeak(x, w, h, e.leakKind, e.leak);
   if (e.dust) drawDust(x, w, h, e.dust);
   if (e.glitch) glitchFx(x, w, h, e.glitch);
-  if (e.stamp) drawStamp(x, w, h, stampMs, e.stampStyle);
+  if (e.stamp && !opt.noStamp) drawStamp(x, w, h, stampMs, e.stampStyle);
   return c;
 }
+/* Datumsstempel nachträglich (für Ergebnisse aus dem Worker) */
+export function applyStamp(c, p, stampMs) { if (!p.stamp) return; drawStamp(c.getContext('2d'), c.width, c.height, stampMs, p.stampStyle || { fmt: 'yy', color: 'orange', pos: 'br' }); }
+export function auxFromData(w, h, data) { return { w, h, M: Math.max(w, h), data, lum: null, lb: {}, rgb: {}, dark: {}, brushKey: null, brush: null }; }
 /* Gewichtskarte für KI- und Lasso-Masken in Bildgröße (mit weicher Kante), je Hilfsbild zwischengespeichert */
 function regionMap(aux, m) {
   const { w, h, M } = aux, key = (m.d ? 'd' + m.d.length + m.d.slice(-48) : 'l' + JSON.stringify(m.pts)) + '|' + (m.feather ?? .1);
@@ -481,20 +485,31 @@ export const cutHooks = { ver: 0, onReady: null };
 const maskImgs = new Map();
 export function maskData(d, mw, mh) {
   let e = maskImgs.get(d);
-  if (!e) { e = { ready: false, sized: new Map() }; maskImgs.set(d, e); const im = new Image();
-    im.onload = () => { e.img = im; e.ready = true; cutHooks.ver++; cutHooks.onReady && cutHooks.onReady(); }; im.onerror = () => { e.ready = true; e.bad = true; cutHooks.ver++; }; im.src = d; }
+  if (!e) { e = { ready: false, sized: new Map() }; maskImgs.set(d, e); e.p = decodeInto(e, d); }
   if (!e.ready || e.bad) return null;
   const k = mw + 'x' + mh; let m = e.sized.get(k);
   if (!m) { const c = mk(mw, mh), x = c.getContext('2d', { willReadFrequently: true }); x.imageSmoothingQuality = 'high'; x.drawImage(e.img, 0, 0, mw, mh);
     const px = x.getImageData(0, 0, mw, mh).data; m = new Float32Array(mw * mh); for (let i = 0; i < m.length; i++) m[i] = px[i * 4] / 255; e.sized.set(k, m); if (e.sized.size > 3) e.sized.delete(e.sized.keys().next().value); }
   return m;
 }
+/* Daten-URL dekodieren – im Browser über <img>, im Worker über createImageBitmap */
+function decodeInto(e, d) {
+  const done = img => { e.img = img; e.ready = true; cutHooks.ver++; cutHooks.onReady && cutHooks.onReady(); }, fail = () => { e.ready = true; e.bad = true; cutHooks.ver++; };
+  if (IN_WORKER) return fetch(d).then(r => r.blob()).then(b => createImageBitmap(b)).then(done, fail);
+  return new Promise(res => { const im = new Image(); im.onload = () => { done(im); res(); }; im.onerror = () => { fail(); res(); }; im.src = d; });
+}
+/* alle Masken einer Bearbeitung vorab laden (Worker: vor dem Rechnen abwarten) */
+export function preloadAssets(p) {
+  const ps = [];
+  for (const m of p.masks || []) if (m.d) { maskData(m.d, 1, 1); ps.push(maskImgs.get(m.d).p); }
+  if (p.skin && p.skin.d) { maskData(p.skin.d, 1, 1); ps.push(maskImgs.get(p.skin.d).p); }
+  return Promise.all(ps);
+}
 /* Farb-Patches (Objekt entfernen) – ebenfalls asynchron dekodiert */
 const patchImgs = new Map();
 function patchImg(d) {
   let e = patchImgs.get(d);
-  if (!e) { e = { ready: false }; patchImgs.set(d, e); const im = new Image();
-    im.onload = () => { e.img = im; e.ready = true; cutHooks.ver++; cutHooks.onReady && cutHooks.onReady(); }; im.onerror = () => { e.ready = true; e.bad = true; cutHooks.ver++; }; im.src = d; }
+  if (!e) { e = { ready: false }; patchImgs.set(d, e); e.p = decodeInto(e, d); }
   return e.ready && !e.bad ? e.img : null;
 }
 const imgReady = (d, isPatch) => { const e = (isPatch ? patchImgs : maskImgs).get(d); return !!(e && e.ready); };

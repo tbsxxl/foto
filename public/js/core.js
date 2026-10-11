@@ -151,6 +151,12 @@ export const selLayer = () => state.layers.find(l => l.id === ui.sel) || null;
 
 let toastT;
 /* Meldung, optional mit Aktion (z. B. „Rückgängig“) */
+/* Fehlerprotokoll: die letzten Fehler für „Problem melden“ (bleibt über Neustarts erhalten) */
+export const errLog = (() => { try { return JSON.parse(localStorage.getItem('streifzug.errlog') || '[]').map(e => ({ ...e, old: true })); } catch { return []; } })();
+export function logErr(kind, msg) {
+  errLog.push({ t: Date.now(), kind, msg: String(msg || '').slice(0, 400) }); while (errLog.length > 40) errLog.shift();
+  try { localStorage.setItem('streifzug.errlog', JSON.stringify(errLog.slice(-25).map(({ old, ...e }) => e))); } catch {}
+}
 /* Haptisches Feedback: Android per vibrate, iOS (ab 18) über einen versteckten Schalter */
 let hapEl = null, hapT = 0;
 export function haptic() {

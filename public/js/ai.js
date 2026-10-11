@@ -25,6 +25,9 @@ export function loadInpaint(onProgress) {
   return miganP;
 }
 
+/* Modell nach 3 Minuten ohne Benutzung freigeben – spart auf dem iPhone viel Arbeitsspeicher */
+let relT = 0;
+function scheduleRelease() { clearTimeout(relT); relT = setTimeout(async () => { const p = miganP; miganP = null; try { const m = await p; m && m.s && m.s.release && await m.s.release(); } catch {} }, 180000); }
 /* hole: Canvas in Quellgröße (oder kleiner), Alpha > 0 = entfernen.
    Ergebnis: Ausschnitt-Patch (mit weicher Alpha-Kante) und seine Lage in 0..1-Koordinaten */
 export async function inpaint(src, hole, onProgress) {
@@ -65,6 +68,7 @@ export async function inpaint(src, hole, onProgress) {
   const ps = Math.min(1, 1024 / Math.max(rw, rh)), fw = Math.max(1, Math.round(rw * ps)), fh = Math.max(1, Math.round(rh * ps));
   const fc = mk(fw, fh), fx = fc.getContext('2d'); fx.imageSmoothingQuality = 'high'; fx.drawImage(pc, 0, 0, fw, fh);
   // feines Korn aus der Umgebung, damit die gefüllte Stelle nicht glatter wirkt als das Foto
+  scheduleRelease();
   return { x: rx / W, y: ry / H, w: rw / W, h: rh / H, canvas: fc };
 }
 function dilate(a, w, h, r) {

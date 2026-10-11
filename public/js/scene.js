@@ -1,6 +1,7 @@
 /* Ebenen, Quellen, Zeichnen der Szene */
 import { clamp, seeded, state, ui, sources, cache, dims, FONTS, stampText } from './core.js';
-import { mk, makeAux, processImage, prepare, cutout, shrink, cutHooks, pendingAssets, blurCanvas } from './process.js';
+import { mk, makeAux, processImage, prepare, cutout, shrink, cutHooks, pendingAssets, blurCanvas, applyStamp } from './process.js';
+import { poolOK, disablePool, call, send } from './pool.js';
 import qrcode from '../vendor/qrcode/qrcode.mjs';
 import { drawTapeReal, drawClipReal, drawBinderReal, drawDoodle, isDoodle, DOODLE_LIST } from './props.js';
 
@@ -32,7 +33,27 @@ export function cropRect(iw, ih, l) {
   const bx = l.crop.box; if (bx) return [bx[0] * iw, bx[1] * ih, bx[2] * iw, bx[3] * ih]; // fester Ausschnitt (Panorama-Fenster)
   const a = cropAspect(l), z = l.crop.zoom; let sw, sh;
   if (iw / ih > a) { sh = ih / z; sw = sh * a; } else { sw = iw / z; sh = sw / a; }
-  return [(iw - sw) * l.crop.px, (ih - sh) * l.crop.py, sw, sh];
+  let px = l.crop.px, py = l.crop.py;
+  // intelligenter Zuschnitt: solange nicht selbst verschoben, das Motiv (Gesicht, Kontrast) in den Ausschnitt holen
+  if (px === .5 && py === .5 && l.crop.auto !== false) { const f = focusOf(l); if (f) { if (iw > sw + 1) px = clamp((f[0] * iw - sw / 2) / (iw - sw)); if (ih > sh + 1) py = clamp((f[1] * ih - sh / 2) / (ih - sh)); } }
+  return [(iw - sw) * px, (ih - sh) * py, sw, sh];
+}
+function focusOf(l) {
+  const src = l.srcId && sources.get(l.srcId), f = src && src.focus; if (!f) return null;
+  let u = f[0] - .5, v = f[1] - .5; if (l.flip) u = -u; for (let k = 0; k < (l.rot90 || 0) % 4; k++) { const t = u; u = -v; v = t; }
+  return [u + .5, v + .5];
+}
+/* Wo ist das Motiv? Kanten, Hauttöne und Farbe, leicht zur Mitte gewichtet – ohne KI-Modell, in wenigen Millisekunden */
+export function focusPoint(img) {
+  const S = 96, k = S / Math.max(img.width, img.height), w = Math.max(8, Math.round(img.width * k)), h = Math.max(8, Math.round(img.height * k)), c = mk(w, h), x = c.getContext('2d', { willReadFrequently: true });
+  x.drawImage(img, 0, 0, w, h); const d = x.getImageData(0, 0, w, h).data, n = w * h, L = new Float32Array(n), sc = new Float32Array(n);
+  for (let i = 0; i < n; i++) L[i] = (d[i * 4] * .3 + d[i * 4 + 1] * .59 + d[i * 4 + 2] * .11) / 255;
+  for (let y = 1; y < h - 1; y++) for (let xx = 1; xx < w - 1; xx++) { const i = y * w + xx, r = d[i * 4], g = d[i * 4 + 1], b = d[i * 4 + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    const edge = Math.abs(L[i + 1] - L[i - 1]) + Math.abs(L[i + w] - L[i - w]), skin = r > 95 && g > 40 && b > 20 && r > g && r > b && r - g > 15 && mx - mn > 15 ? 1 : 0, sat = mx ? (mx - mn) / mx : 0;
+    const dx = xx / w - .5, dy = y / h - .45; sc[i] = (edge * 2.2 + skin * .9 + sat * .25) * (.55 + .45 * Math.exp(-(dx * dx + dy * dy) * 5)); }
+  const sorted = Float32Array.from(sc).sort(), thr = sorted[Math.floor(n * .86)]; let sx = 0, sy = 0, sw = 0;
+  for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++) { const v = sc[y * w + xx]; if (v > thr) { sx += xx * v; sy += y * v; sw += v; } }
+  return sw ? [clamp(sx / sw / w, .12, .88), clamp(sy / sw / h, .12, .88)] : null;
 }
 export const FRAMES = new Set(['polaroid', 'instax', 'film', 'filmv', 'dia']);
 export function boxOf(l) {
@@ -311,6 +332,13 @@ export function ensureCache(l) {
     return { ...c, proc: c.draftProc };
   }
   if (c.procKey !== pk && flags.throttle && c.proc && performance.now() - (c.t || 0) < flags.throttle) flags.pending = true;
+  else if (c.procKey !== pk && poolOK() && !flags.sync) {
+    procAsync(c, ck, l, pk);
+    if (!c.proc) { // bis das Ergebnis da ist: schnelle kleine Vorschau
+      if (!c.draftAux) { const p = c.prep, s = Math.min(1, 560 / Math.max(p.width, p.height)); c.draftAux = makeAux(shrink(p, p.width * s, p.height * s)); }
+      c.proc = processImage(c.draftAux, l.params, l.stampMs);
+    }
+  }
   else if (c.procKey !== pk) {
     if (!c.aux) c.aux = makeAux(c.prep);
     c.t = performance.now();
@@ -318,6 +346,32 @@ export function ensureCache(l) {
     if (l.id === ui.sel) flags.histDirty = true; else c.aux = null; // Speicher sparen: Hilfspuffer nur für das gewählte Foto behalten
   }
   return c;
+}
+/* Hintergrund-Berechnung: neuester Auftrag gewinnt, Bilddaten werden je Foto nur einmal übertragen */
+function procAsync(c, ck, l, pk) {
+  if (c.wantKey === pk) return; c.wantKey = pk;
+  const job = { pk, params: JSON.parse(JSON.stringify(l.params)), stampMs: l.stampMs, sel: l.id === ui.sel };
+  if (c.busy) { c.next = job; return; } runJob(c, ck, job);
+}
+function sendAux(c, ck) {
+  const p = c.prep, key = ck + '|' + p.width + 'x' + p.height + '|' + (c.prepKey || '').length + '|' + idOfPrep(p);
+  if (c.wAux === key) return key;
+  const d = p.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, p.width, p.height).data;
+  send({ type: 'aux', key, w: p.width, h: p.height, buf: d.buffer }, [d.buffer]); c.wAux = key; return key;
+}
+const prepIds = new WeakMap(); let prepN = 0;
+const idOfPrep = p => prepIds.get(p) || (prepIds.set(p, ++prepN), prepN);
+async function runJob(c, ck, job) {
+  c.busy = true;
+  try {
+    let r = null;
+    for (let tries = 0; tries < 2; tries++) { const key = sendAux(c, ck); r = await call({ type: 'proc', key, params: job.params, stampMs: job.stampMs }, null, null, 45000); if (r.type !== 'need') break; c.wAux = null; }
+    if (r && r.bmp) {
+      const cv = mk(r.bmp.width, r.bmp.height); cv.getContext('2d').drawImage(r.bmp, 0, 0); r.bmp.close && r.bmp.close(); applyStamp(cv, job.params, job.stampMs);
+      c.proc = cv; c.procKey = job.pk; c.t = performance.now(); if (job.sel) flags.histDirty = true;
+    }
+  } catch (e) { console.warn(e); disablePool(String(e && e.message || e)); c.wantKey = null; }
+  finally { c.busy = false; if (c.next) { const n = c.next; c.next = null; runJob(c, ck, n); } cutHooks.onReady && cutHooks.onReady(); }
 }
 export function releaseAux(l) { const c = l && cache.get(cacheKey(l)); if (c) c.aux = null; }
 

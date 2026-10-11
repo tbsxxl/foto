@@ -1,14 +1,19 @@
 /* Streifzug – Oberfläche, Gesten, Werkzeuge, Export */
-import { haptic, $, clamp, clone, de, esc, state, ui, sources, cache, ids, newId, dims, selLayer, toast, defParams, upgradeParams,
+import { logErr, errLog, haptic, $, clamp, clone, de, esc, state, ui, sources, cache, ids, newId, dims, selLayer, toast, defParams, upgradeParams,
   FORMATS, HSL_BANDS, LOOKS, LOOK_CATS, FONTS, TEXT_COLORS, BG_COLORS, FRAME_COLORS, RATIOS, ID_CURVE, BLENDS, STAMP_COLORS } from './core.js';
 import { mk, makeAux, processImage, prepare, curveFn, pickHealSource, wbFromPoint, LEAKS, shrink } from './process.js';
-import { flags, getCut, hasCut, loadScaled, orientCanvas, cropAspect, cropRect, boxOf, drawScene, ensureCache, releaseAux, cacheKey, drawSample, SHAPES, BG_PATTERNS, FRAMES, CHART_PALETTES } from './scene.js';
+import { focusPoint, flags, getCut, hasCut, loadScaled, orientCanvas, cropAspect, cropRect, boxOf, drawScene, ensureCache, releaseAux, cacheKey, drawSample, SHAPES, BG_PATTERNS, FRAMES, CHART_PALETTES } from './scene.js';
 import { newImageLayer, newTextLayer, newShapeLayer, coverSlide, coverAll, computeBox } from './layers.js';
 import { isDoodle, doodleSVG, tapeType, TAPE_KINDS, TAPE_PATTERNS, TAPE_COLORS, CLIP_COLORS, BINDER_COLORS } from './props.js';
 import { TEMPLATES, TPL_CATS, tplSVG, tplDef, applyTemplate, layout, relink, shufflePhotos, releaseTemplate } from './templates.js';
 import * as store from './store.js';
+import { poolOK, call } from './pool.js';
 import { cutHooks, maskToPNG, cleanMask } from './process.js';
 
+/* Fehler mitschreiben – für „Problem melden“ in der Hilfe */
+addEventListener('error', e => logErr('Fehler', `${e.message} @ ${(e.filename || '').split('/').pop()}:${e.lineno}`));
+addEventListener('unhandledrejection', e => logErr('Fehler (asynchron)', e.reason && (e.reason.stack || e.reason.message) || e.reason));
+for (const k of ['error', 'warn']) { const o = console[k].bind(console); console[k] = (...a) => { try { logErr(k === 'error' ? 'Fehler' : 'Warnung', a.map(x => x && x.stack ? x.stack.split('\n').slice(0, 3).join(' | ') : typeof x === 'object' ? (JSON.stringify(x) || '').slice(0, 200) : String(x)).join(' ')); } catch {} o(...a); }; }
 const PREVIEW_PX = 1200; // Vorschau-Auflösung (Export rechnet mit voller Auflösung)
 
 /* ---------- Bühne ---------- */
@@ -79,6 +84,59 @@ function updateChrome() {
 }
 quick.addEventListener('click', e => { const b = e.target.closest('[data-q]'), l = selLayer(); if (!b || !l) return; if (b.dataset.q === 'menu') { const r = b.getBoundingClientRect(); openMenu(layerMenu(l), r.right, r.bottom + 4, 'tr'); } else action(b.dataset.q, l); });
 
+/* ---------- Werkzeugsuche ---------- */
+const TOOL_INDEX = [
+  ['looks', 'Looks & Filter', 'filter preset fuji kodak film look analog'], ['anpassen', 'Schnell anpassen', 'helligkeit kontrast sättigung ambiance'],
+  ['licht', 'Licht & Histogramm', 'belichtung lichter tiefen weiß schwarz histogramm'], ['kurve', 'Gradationskurve', 'kurve kontrast s-kurve matt'],
+  ['farbe', 'Farbe & HSL', 'weißabgleich temperatur tönung dynamik hsl farbmischer pipette'], ['grading', 'Color Grading', 'kino farbe teal orange split'],
+  ['effekte', 'Film & Licht', 'körnung grain vignette glow halation lichteinfall light leak staub low-res farbsäume'], ['kreativ', 'Kreativ-Filter', 'tonaler kontrast drama grunge glitch doppelbelichtung'],
+  ['details', 'Details', 'struktur klarheit textur dunst schärfen rauschen'], ['stempel', 'Datumsstempel', 'datum stempel kamera'],
+  ['entfernen', 'Objekt entfernen', 'entfernen löschen person wegmachen radiergummi magic eraser clean up'], ['freistellen', 'Freistellen', 'ausschneiden motiv sticker lasso'],
+  ['hintergrund', 'Hintergrund ersetzen', 'hintergrund unscharf color pop farbe ersetzen transparent'], ['gesicht', 'Gesicht & Haut', 'haut glätten retusche beauty strahlen'],
+  ['selektiv', 'Auswahl & Masken', 'himmel person motiv maske selektiv lasso lokal bereich'], ['pinsel', 'Pinsel', 'abwedeln nachbelichten dodge burn malen'],
+  ['reparieren', 'Reparieren', 'fleck pickel fussel heilen'], ['klonen', 'Kopierstempel', 'stempel klonen kopieren'], ['fokus', 'Fokus & Tilt-Shift', 'unschärfe tiefenschärfe tilt shift bokeh'],
+  ['zuschnitt', 'Zuschnitt & Drehen', 'zuschneiden drehen spiegeln perspektive begradigen zoom ausschnitt'], ['rahmen', 'Rahmen & Form', 'rahmen polaroid form rand schatten ecken'],
+  ['ebene', 'Ebene', 'deckkraft mischmodus ebene'],
+  ['@vorlagen', 'Vorlagen', 'vorlage layout collage raster panorama'], ['@canvas', 'Format & Größe', 'format story pinterest größe ändern a4 slides hintergrund'],
+  ['@marke', 'Marken-Kit', 'marke logo farben schriften brand'], ['@element', 'Elemente', 'sticker form kritzel emoji qr diagramm chart klebeband'],
+  ['@text', 'Text hinzufügen', 'text schrift überschrift'], ['@ebenen', 'Ebenen & Verlauf', 'ebenen verlauf rückgängig history'], ['@export', 'Teilen & Exportieren', 'export teilen speichern instagram']
+];
+const norm = t => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+function openToolSearch() {
+  ctxItems = []; ctxMenu.innerHTML = `<div class="ts"><input type="search" class="name" id="toolQ" placeholder="Werkzeug suchen, z. B. Himmel, Haut, Körnung" autocomplete="off" enterkeyhint="go"></div><div id="toolRes"></div>`;
+  ctxEl.hidden = false; const w = ctxMenu.offsetWidth; ctxMenu.style.left = Math.max(12, (innerWidth - w) / 2) + 'px'; ctxMenu.style.top = ($('.top').getBoundingClientRect().bottom + 6) + 'px';
+  ctxMenu.style.transformOrigin = '50% 0'; ctxMenu.classList.remove('in'); void ctxMenu.offsetWidth; ctxMenu.classList.add('in');
+  const q = $('#toolQ'), show = () => { const t = norm(q.value.trim()), words = t.split(/\s+/).filter(Boolean);
+    const hits = TOOL_INDEX.filter(([k, lb, kw]) => !words.length || words.every(wd => norm(lb + ' ' + kw + ' ' + k).includes(wd))).slice(0, words.length ? 9 : 7);
+    ctxItems = hits.map(([k, lb]) => [lb, k.startsWith('@') ? 'tpl' : 'crop', () => goTool(k)]);
+    $('#toolRes').innerHTML = hits.length ? hits.map(([k, lb, kw], i) => `<button class="ctx-item" role="menuitem" data-ci="${i}"><span>${lb}<small class="ts-kw">${kw.split(' ').slice(0, 4).join(' · ')}</small></span></button>`).join('') : '<p class="note" style="padding:12px 16px">Nichts gefunden</p>'; };
+  q.addEventListener('input', show); q.addEventListener('keydown', e => { if (e.key === 'Enter' && ctxItems[0]) { closeMenu(); ctxItems[0][2](); } }); show(); q.focus();
+}
+function goTool(k) {
+  if (k.startsWith('@')) { const m = { '@vorlagen': 'vorlagen', '@canvas': 'canvas', '@marke': 'canvas', '@element': 'element', '@ebenen': 'ebenen' }[k];
+    if (k === '@text') { selectLayer(null); addTextHere(); return; } if (k === '@export') { doExport(); return; }
+    ui.tab.none = m; selectLayer(null); renderUI(); if (k === '@marke') setTimeout(() => panel.querySelector('#brandColor')?.closest('.group')?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 80); return; }
+  let l = selLayer(); if (!l || l.type !== 'image' || !l.srcId) l = state.layers.find(x => x.type === 'image' && x.srcId);
+  if (!l) { toast('Füge zuerst ein Foto hinzu'); return; }
+  const g = groupOf(k); ui.sub = ui.sub || {}; ui.sub[g[0]] = k; ui.tab.image = k; ui.pick = false; if (ui.sel !== l.id) selectLayer(l.id); renderUI();
+}
+/* einmalige Tipps beim ersten Öffnen eines Werkzeugs */
+const TIPS = {
+  entfernen: 'Tippe auf ein störendes Objekt oder übermale es – fertig. Kleine und mittlere Objekte klappen am besten.',
+  freistellen: 'Tippe aufs Motiv. Danach kannst du Text hinter das Motiv legen oder es als Sticker verwenden.',
+  hintergrund: 'Erst das Motiv erkennen lassen, dann den Hintergrund wählen: unscharf, Color Pop, Farbe oder ein anderes Foto.',
+  gesicht: 'Die Haut wird automatisch erkannt. „Glätten“ sparsam einsetzen – 30 bis 50 wirkt natürlich.',
+  selektiv: 'Wähle Himmel, Person oder Motiv – oder tippe ins Foto. Dann passt du nur diesen Bereich an.',
+  klonen: 'Erst die Quelle antippen, dann dort malen, wo die Kopie hin soll.',
+  kurve: 'Leichte S-Form = mehr Kontrast. Linken Punkt anheben = matter Film-Look.',
+  grading: 'Tiefen kühl, Lichter warm – der klassische Kino-Look.',
+  kreativ: 'Für die Doppelbelichtung brauchst du ein zweites Foto im Projekt.',
+  pinsel: 'Mehrmals über dieselbe Stelle malen verstärkt die Wirkung.',
+  fokus: 'Ziehe den Punkt auf das, was scharf bleiben soll – der Rest wird weich.',
+  looks: '„Vorher“ oben gedrückt halten vergleicht mit dem Original.'
+};
+const tipCard = k => TIPS[k] && !LS.get('tipsSeen', {})[k] ? `<div class="tip" role="note"><span class="tip-ico">${IC.spark}</span><span>${TIPS[k]}</span><button class="tip-ok" data-tipok="${k}">OK</button></div>` : '';
+
 /* ---------- Kontextmenü wie in iOS (lange drücken oder „•••“) ---------- */
 const ctxEl = $('#ctx'), ctxMenu = $('#ctxMenu');
 const MI = {
@@ -116,7 +174,7 @@ function openMenu(items, x, y, anchor) {
   ctxMenu.classList.remove('in'); void ctxMenu.offsetWidth; ctxMenu.classList.add('in'); ctxMenu.querySelector('.ctx-item')?.focus({ preventScroll: true });
 }
 function closeMenu() { if (ctxEl.hidden) return; ctxEl.classList.add('out'); setTimeout(() => { ctxEl.hidden = true; ctxEl.classList.remove('out'); }, 160); }
-ctxEl.addEventListener('click', e => { const b = e.target.closest('[data-ci]'); if (!b && lpMenu && (lpMenu.held || performance.now() < lpMenu.until)) return; lpMenu = null; closeMenu(); if (b) { const it = ctxItems[+b.dataset.ci]; it[2](); haptic(); } }); // sofort ausführen: Safari erlaubt die Zwischenablage nur direkt beim Tippen
+ctxEl.addEventListener('click', e => { const b = e.target.closest('[data-ci]'); if (!b && e.target.closest('#ctxMenu')) return; if (!b && lpMenu && (lpMenu.held || performance.now() < lpMenu.until)) return; lpMenu = null; closeMenu(); if (b) { const it = ctxItems[+b.dataset.ci]; it[2](); haptic(); } }); // sofort ausführen: Safari erlaubt die Zwischenablage nur direkt beim Tippen
 ctxEl.addEventListener('contextmenu', e => e.preventDefault());
 /* Mess-Pille beim Drehen und Skalieren */
 const hud = $('#hud');
@@ -338,7 +396,7 @@ function startTool(tool, l, p) {
     P.brush.push(st); ui.cursor = { u: ip.u, v: ip.v }; flags.throttle = 120;
     return { mode: 'brush', st, l, moved: true };
   }
-  if (tool === 'crop') { if (!ip.inside) return null; return { mode: 'crop', l, q0: toLocal(l, p), px0: l.crop.px, py0: l.crop.py, G, moved: false }; }
+  if (tool === 'crop') { if (!ip.inside) return null; materializeCrop(l); return { mode: 'crop', l, q0: toLocal(l, p), px0: l.crop.px, py0: l.crop.py, G, moved: false }; }
   return null;
 }
 let multiTap = null, lpT = 0, lpMenu = null;
@@ -459,8 +517,14 @@ cv.addEventListener('wheel', e => { e.preventDefault(); const p = toCanvas(e);
   else { view.ox -= e.deltaX || e.deltaY; } clampView(); requestRender(); }, { passive: false });
 
 /* Doppeltipp aufs Foto: Ausschnitt im Rahmen verschieben und zoomen (nochmal Doppeltipp: zurück zum Rahmen) */
+/* automatischen Ausschnitt (Motiv im Bild) in echte Werte übernehmen, bevor man selbst verschiebt */
+function materializeCrop(l) {
+  if (!l.crop || l.crop.box || l.crop.px !== .5 || l.crop.py !== .5) return; const c = ensureCache(l); if (!c || !c.prep) return;
+  const iw = c.prep.width, ih = c.prep.height, [sx, sy, sw, sh] = cropRect(iw, ih, l);
+  l.crop.px = iw > sw + 1 ? +(sx / (iw - sw)).toFixed(4) : .5; l.crop.py = ih > sh + 1 ? +(sy / (ih - sh)).toFixed(4) : .5; if (l.crop.px === .5 && l.crop.py === .5) l.crop.auto = false;
+}
 function enterCrop(on) {
-  const l = selLayer(); if (!l || l.type !== 'image' || !l.srcId) return;
+  const l = selLayer(); if (!l || l.type !== 'image' || !l.srcId) return; if (on) materializeCrop(l);
   ui.tab.image = on ? 'zuschnitt' : 'rahmen'; ui.pick = false; haptic(); renderUI();
   if (on) toast(l.crop.box ? 'Ziehen verschiebt den Ausschnitt im Panorama' : 'Foto im Rahmen verschieben · Doppeltipp: fertig');
 }
@@ -542,9 +606,15 @@ async function runErase(l, how) {
       const cm = cleanMask(m, how.u, how.v), t = mk(cm.w, cm.h), tx = t.getContext('2d'), id = tx.createImageData(cm.w, cm.h);
       for (let i = 0; i < cm.data.length; i++) { id.data[i * 4] = id.data[i * 4 + 1] = id.data[i * 4 + 2] = 255; id.data[i * 4 + 3] = cm.data[i] > .35 ? 255 : 0; }
       tx.putImageData(id, 0, 0); hx.drawImage(t, 0, 0, hw, hh); }
-    const A = await import('./ai.js'); prog(0);
-    const r = await A.inpaint(src, hole, prog); if (!r) { toast('Nichts zum Entfernen markiert'); return; }
-    l.params.erase.push({ x: +r.x.toFixed(5), y: +r.y.toFixed(5), w: +r.w.toFixed(5), h: +r.h.toFixed(5), d: r.canvas.toDataURL('image/png') });
+    prog(0); let r, d;
+    if (poolOK()) { // im Hintergrund-Rechner, damit die Oberfläche nicht einfriert
+      try { const sb = await createImageBitmap(src), hb = await createImageBitmap(hole), m = await call({ type: 'inpaint', src: sb, hole: hb }, [sb, hb], prog);
+        r = m.r; if (r) d = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(r.blob); }); else r = null; }
+      catch (err) { logErr('Entfernen (Hintergrund)', err && err.message); r = undefined; }
+    }
+    if (r === undefined) { const A = await import('./ai.js'); r = await A.inpaint(src, hole, prog); if (r) d = r.canvas.toDataURL('image/png'); }
+    if (!r) { toast('Nichts zum Entfernen markiert'); return; }
+    l.params.erase.push({ x: +r.x.toFixed(5), y: +r.y.toFixed(5), w: +r.w.toFixed(5), h: +r.h.toFixed(5), d });
     ui.nextLabel = layerName(l) + ' · Objekt entfernt'; haptic(); commit(); toast('Entfernt', 'Rückgängig', undo);
   } catch (e) { console.error(e); toast('Entfernen hat nicht geklappt – beim ersten Mal ist Internet nötig, sonst Speicher knapp'); }
   finally { ui.erBusy = false; ui.erStroke = null; hud.hidden = true; requestRender(); }
@@ -639,6 +709,8 @@ function updateTop() {
 function renderUI() { renderTabs(); renderHead(); renderPanel(); updateTop(); requestRender(); }
 function sv(d) { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`; }
 const IC = {
+  spark: sv('<path d="M12 3c.5 3.5 2.5 5.5 6 6-3.5.5-5.5 2.5-6 6-.5-3.5-2.5-5.5-6-6 3.5-.5 5.5-2.5 6-6z"/><path d="M19 15c.2 1.4 1 2.2 2.4 2.4-1.4.2-2.2 1-2.4 2.4-.2-1.4-1-2.2-2.4-2.4 1.4-.2 2.2-1 2.4-2.4z"/>'),
+  search: sv('<circle cx="11" cy="11" r="7"/><path d="m20 20-4.2-4.2"/>'),
   canvas: sv('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M9 5v14M15 5v14"/>'), tpl: sv('<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="10" width="8" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/>'),
   layers: sv('<path d="M12 3 3 8l9 5 9-5z"/><path d="m3 13 9 5 9-5"/>'), photo: sv('<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 8"/>'),
   cam: sv('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'), text: sv('<path d="M5 6V4h14v2M12 4v16M9 20h6"/>'), el: sv('<path d="m12 3 2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.4 6.7 19.4l1.2-6L3.4 9.3l6-.7z"/>'),
@@ -655,10 +727,10 @@ const IC = {
 };
 /* Foto-Werkzeuge in Gruppen: obere Reiter, darunter Unterreiter */
 const IMG_GROUPS = [['rahmen', 'Rahmen', 'frame', ['rahmen']], ['looks', 'Looks', 'looks', ['looks']], ['licht', 'Licht', 'light', ['anpassen', 'licht', 'kurve']], ['farbe', 'Farbe', 'color', ['farbe', 'grading']],
-  ['effekte', 'Effekte', 'fx', ['effekte', 'kreativ', 'details', 'stempel']], ['werkzeuge', 'Werkzeuge', 'tools', ['entfernen', 'freistellen', 'hintergrund', 'selektiv', 'gesicht', 'pinsel', 'reparieren', 'klonen', 'fokus']], ['zuschnitt', 'Zuschnitt', 'crop', ['zuschnitt']], ['ebene', 'Ebene', 'layers', ['ebene']]];
+  ['effekte', 'Effekte', 'fx', ['effekte', 'kreativ', 'details', 'stempel']], ['ki', 'KI', 'spark', ['entfernen', 'freistellen', 'hintergrund', 'gesicht', 'selektiv']], ['retusche', 'Retusche', 'tools', ['pinsel', 'reparieren', 'klonen', 'fokus']], ['zuschnitt', 'Zuschnitt', 'crop', ['zuschnitt']], ['ebene', 'Ebene', 'layers', ['ebene']]];
 const SUB_LABEL = { anpassen: 'Schnell', licht: 'Licht & Histogramm', kurve: 'Kurve', farbe: 'Farbe & HSL', grading: 'Color Grading', effekte: 'Film & Licht', details: 'Details', stempel: 'Datumsstempel',
   kreativ: 'Kreativ', entfernen: 'Entfernen', hintergrund: 'Hintergrund', gesicht: 'Gesicht & Haut', klonen: 'Stempel',
-  freistellen: 'Freistellen', selektiv: 'Selektiv', pinsel: 'Pinsel', reparieren: 'Reparieren', fokus: 'Fokus' };
+  freistellen: 'Freistellen', selektiv: 'Auswahl', pinsel: 'Pinsel', reparieren: 'Reparieren', fokus: 'Fokus' };
 const groupOf = leaf => IMG_GROUPS.find(g => g[3].includes(leaf)) || IMG_GROUPS[0];
 const TABSETS = {
   none: [['canvas', 'Leinwand', 'canvas'], ['vorlagen', 'Vorlagen', 'tpl'], ['ebenen', 'Ebenen', 'layers'], ['addPhoto', 'Foto', 'photo'], ['addText', 'Text', 'text'], ['element', 'Element', 'el']],
@@ -690,10 +762,11 @@ $('#camIn').addEventListener('change', e => { const f = [...e.target.files]; e.t
 function renderHead() {
   const m = mode(), l = selLayer();
   if (m === 'none') { const tb = TABSETS.none.find(x => x[0] === ui.tab.none) || TABSETS.none[0];
-    head.innerHTML = `<span class="title">${tb[1]}</span><button class="icon-btn" data-act="paste" aria-label="Einfügen" title="Bild, Text oder kopierte Ebene einfügen">${IC.paste}</button>`; return; }
+    head.innerHTML = `<span class="title">${tb[1]}</span><button class="icon-btn" data-act="search" aria-label="Werkzeug suchen" title="Werkzeug suchen">${IC.search}</button><button class="icon-btn" data-act="paste" aria-label="Einfügen" title="Bild, Text oder kopierte Ebene einfügen">${IC.paste}</button>`; return; }
   if (m === 'text' || m === 'shape' || m === 'slot') { head.innerHTML = `<span class="title">${m === 'text' ? 'Text' : m === 'slot' ? 'Leeres Feld' : 'Element'}</span><button class="btn primary small icon" data-act="done" aria-label="Fertig" title="Fertig"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></button>`; return; }
   const n = state.layers.filter(x => x.type === 'image').indexOf(l) + 1;
   head.innerHTML = `<span class="title">Foto ${n}</span>
+    <button class="btn ghost small icon" data-act="search" aria-label="Werkzeug suchen" title="Werkzeug suchen">${IC.search}</button>
     <button class="btn ghost small" data-act="before" aria-label="Vorher anzeigen, gedrückt halten" title="Gedrückt halten: Vorher">Vorher</button>
     <button class="btn ghost small${l.params.auto ? ' on' : ''}" data-act="auto" title="Automatisch verbessern">Auto</button>
     <button class="btn ghost small icon" data-act="reset" aria-label="Bearbeitung zurücksetzen" title="Bearbeitung zurücksetzen"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></button>
@@ -705,6 +778,7 @@ head.addEventListener('click', e => {
   const a = e.target.closest('[data-act]')?.dataset.act, l = selLayer(); if (!a) return;
   if (a === 'done') selectLayer(null);
   else if (a === 'paste') pasteAny();
+  else if (a === 'search') openToolSearch();
   else if (a === 'auto' && l) { if (l.params.auto) { l.params.auto = null; l.params.brightness = 0; toast('Auto-Korrektur entfernt'); } else autoFix(l); commit(); }
   else if (a === 'reset' && l) { l.params = defParams(); toast('Bearbeitung zurückgesetzt'); commit(); }
 });
@@ -826,7 +900,7 @@ function renderPanel() {
   else if (m === 'text') h = t === 'stil' ? panelTextStyle(l) : t === 'ebene' ? panelLayerCommon(l) : panelText(l);
   else if (m === 'shape') h = t === 'ebene' ? panelLayerCommon(l) : panelShape(l);
   else if (m === 'slot') h = panelSlot(l);
-  else { const g = groupOf(t); h = (g[3].length > 1 ? `<div class="seg" role="tablist">${g[3].map(k => `<button data-sub="${k}" aria-selected="${k === t}">${SUB_LABEL[k]}</button>`).join('')}</div>` : '') + (IMAGE_PANELS[t] || IMAGE_PANELS.looks)(l, l.params); }
+  else { const g = groupOf(t); h = tipCard(t) + (g[3].length > 1 ? `<div class="seg" role="tablist">${g[3].map(k => `<button data-sub="${k}" aria-selected="${k === t}">${SUB_LABEL[k]}</button>`).join('')}</div>` : '') + (IMAGE_PANELS[t] || IMAGE_PANELS.looks)(l, l.params); }
   const same = panel.dataset.key === m + t, keep = same ? panel.scrollTop : 0;
   panel.innerHTML = h; panel.dataset.key = m + t; panel.scrollTop = keep;
   if (!same) { panel.classList.remove('enter'); void panel.offsetWidth; panel.classList.add('enter'); }
@@ -904,13 +978,16 @@ function panelTemplates() {
       ${swatches('tplText', TEXT_COLORS, t.textColor)}
       <span class="sec-label">Kritzeleien</span><div class="chips">${[['', 'Vorlage'], ['off', 'Keine'], ['few', 'Ein paar'], ['lots', 'Viele']].map(([k, lb]) => chip(`data-tpldood="${k}"`, lb, (t.doodles || '') === k)).join('')}</div>
       ${t.doodles !== 'off' ? swatches('tplInk', TEXT_COLORS, t.ink) : ''}
-      <div class="row">${btn('tplStyleReset', 'Stil zurücksetzen')}${t.bgLock ? btn('tplBgReset', 'Vorlagen-Hintergrund') : ''}</div>
+      <div class="row">${brand().colors.length || brand().head ? btn('tplBrand', '★ Marken-Look') : ''}${btn('tplStyleReset', 'Stil zurücksetzen')}${t.bgLock ? btn('tplBgReset', 'Vorlagen-Hintergrund') : ''}</div>
       <p class="note">Der Stil bleibt erhalten, wenn du eine andere Vorlage wählst.</p>
     </details>
     ${nPh ? `<p class="note"><b>${nPh} leere${nPh === 1 ? 's Feld' : ' Felder'}</b> – tippe auf ein „+“ oder <label class="linkish" for="fileIn">wähle Fotos</label>, sie werden der Reihe nach eingesetzt.</p>` : ''}
   </div>` : `<p class="note">Wähle eine Vorlage – leere Felder füllst du danach per Antippen. Nochmal tippen wechselt die Variante.</p>`;
+  const sug = !t && !q && cat === 'all' ? suggestTemplates() : [];
+  const tile = (T, on) => `<button class="tpl${on ? ' on' : ''}" data-tpl="${T.id}">${tplSVG(T.id, on ? t.v : 0)}<b>${favs.includes(T.id) ? '★ ' : ''}${T.name}</b><span>${T.vars.length} Variante${T.vars.length === 1 ? '' : 'n'} · ${T.desc}</span></button>`;
+  const sugHtml = sug.length ? group('Passt zu deinen Fotos', `<div class="tpl-grid">${sug.map(T => tile(T, false)).join('')}</div>`) : '';
   const cats = [['all', 'Alle'], ['fav', 'Favoriten'], ['recent', 'Zuletzt'], ...TPL_CATS.slice(1)];
-  return `${cur}<input type="search" class="name tpl-search" id="tplSearch" placeholder="Vorlage suchen, z. B. Polaroid, Herz, Magazin …" value="${esc(ui.tplQuery || '')}" aria-label="Vorlage suchen">
+  return `${cur}${sugHtml}<input type="search" class="name tpl-search" id="tplSearch" placeholder="Vorlage suchen, z. B. Polaroid, Herz, Magazin …" value="${esc(ui.tplQuery || '')}" aria-label="Vorlage suchen">
   <div class="chips scroll">${cats.map(([k, lb]) => chip(`data-tplcat="${k}"`, lb, cat === k)).join('')}</div>
   ${!list.length ? `<p class="note">${cat === 'fav' ? 'Noch keine Favoriten – wähle eine Vorlage und tippe auf den Stern.' : 'Noch keine zuletzt benutzten Vorlagen.'}</p>` : ''}
   <div class="tpl-grid">${list.map(T => { const on = t && t.kind === T.id, hay = (T.name + ' ' + T.desc + ' ' + T.vars.join(' ') + ' ' + T.id + ' ' + (TPL_CATS.find(c => c[0] === T.cat) || ['', ''])[1] + ' ' + (TPL_TAGS[T.id] || '')).toLowerCase();
@@ -954,6 +1031,14 @@ function realTplPreviews() {
     const c = tplThumbs.get(b.dataset.tk); if (c) { const cp = document.createElement('canvas'); cp.width = c.width; cp.height = c.height; cp.className = 'real'; cp.getContext('2d').drawImage(c, 0, 0); b.querySelector('svg')?.replaceWith(cp); }
     else tplIO.observe(b);
   });
+}
+/* Vorlagen-Vorschläge nach Anzahl und Form der Fotos */
+function suggestTemplates() {
+  const ph = state.layers.filter(l => l.type === 'image' && l.srcId && !l.dupOf), n = ph.length; if (!n) return [];
+  const land = ph.filter(l => { const s = sources.get(l.srcId); if (!s || !s.nw) return false; const a = (l.rot90 % 2 ? s.nh / s.nw : s.nw / s.nh); return a > 1.15; }).length / n;
+  const ids = n === 1 ? ['pano', 'cover', 'polaroid', 'minimal', 'framePeek'] : n >= 6 ? ['grid', 'mosaic', 'bento', 'contact', 'scrapbook', 'moodboard']
+    : land >= .6 ? ['panoWin', 'pano', 'seam', 'film', 'spread', 'stairs'] : land <= .3 ? ['polaroid', 'offset', 'magazine', 'tornCollage', 'instax', 'booth'] : ['seam', 'offset', 'polaroid', 'feature', 'torn', 'stack'];
+  return ids.map(id => tplDef(id)).filter(Boolean).slice(0, 4);
 }
 function panelSlot(l) {
   return `<p class="note">Ein leeres Feld der Vorlage. Setze ein Foto ein – mehrere ausgewählte Fotos füllen die nächsten leeren Felder.</p>
@@ -1238,6 +1323,7 @@ function panelShape(l) {
 
 panel.addEventListener('click', async e => {
   if (e.target.closest('.paste-pad')) { pasteAny(); return; }
+  const tok = e.target.closest('[data-tipok]'); if (tok) { const seen = LS.get('tipsSeen', {}); seen[tok.dataset.tipok] = 1; LS.set('tipsSeen', seen); const card = tok.closest('.tip'); card.classList.add('out'); setTimeout(() => card.remove(), 220); return; }
   const sub = e.target.closest('[data-sub]'); if (sub) { const k = sub.dataset.sub; ui.sub = ui.sub || {}; ui.sub[groupOf(k)[0]] = k; ui.tab.image = k; ui.pick = false; renderPanel(); updateTop(); requestRender(); return; }
   const rs = e.target.closest('[data-reset]'); if (rs) { const inp = rs.closest('.sl').querySelector('input'); inp.value = inp.dataset.def; inp.dispatchEvent(new Event('input', { bubbles: true })); flags.draft = false; pushHistory(); refreshAfterCommit(); requestRender(); return; }
   const fs = e.target.closest('[data-fillslot]'); if (fs) { ui.fillSlot = +fs.dataset.fillslot; return; }
@@ -1378,6 +1464,10 @@ function action(a, l) {
     case 'enterCrop': enterCrop(true); return;
     case 'tplReroll': state.tpl.seed = (state.tpl.seed || 0) + 1; layout(false); commit(); toast('Seiten neu gewürfelt'); return;
     case 'tplFav': { const f = LS.get('tplFav', []), id = state.tpl.kind, on = f.includes(id); LS.set('tplFav', on ? f.filter(x => x !== id) : [id, ...f]); toast(on ? 'Aus Favoriten entfernt' : 'Als Favorit gemerkt'); renderPanel(); return; }
+    case 'tplBrand': { const b = brand(), cs = b.colors, lum = h => { const v = parseInt(h.slice(1), 16); return ((v >> 16 & 255) * .3 + (v >> 8 & 255) * .59 + (v & 255) * .11) / 255; };
+      const t = state.tpl; if (b.head || b.body) t.font = b.head || b.body; if (cs.length) { const dark = cs.filter(c => lum(c) < .55), light = cs.filter(c => lum(c) >= .75);
+        t.textColor = dark[0] || cs[0]; t.ink = cs[1] || cs[0]; t.frameColor = light[0] || '#ffffff'; if (light[0]) { state.bg.c1 = light[0]; t.bgLock = true; } }
+      layout(false); commit(); toast('Marken-Look angewendet', 'Rückgängig', undo); return; }
     case 'tplStyleReset': TPL_STYLE_KEYS.forEach(k => delete state.tpl[k]); layout(false); commit(); toast('Stil zurückgesetzt'); return;
     case 'tplBgReset': delete state.tpl.bgLock; layout(false); commit(); return;
     case 'reseed': l.seed = (l.seed || 0) + 1; commit(); return;
@@ -1417,7 +1507,7 @@ function action(a, l) {
     case 'cloneClear': P.clone = []; commit(); return;
     case 'skinDetect': detectSkin(l, true); return;
     case 'autoCut': autoCut(l); return;
-    case 'goCut': ui.sub = ui.sub || {}; ui.sub.werkzeuge = 'freistellen'; ui.tab.image = 'freistellen'; renderUI(); return;
+    case 'goCut': ui.sub = ui.sub || {}; ui.sub.ki = 'freistellen'; ui.tab.image = 'freistellen'; renderUI(); return;
     case 'cutCopy': { const c = unlinked(clone(l)); c.id = newId(); c.sticker = true; c.stickerBorder = 0; c.shape = 'rect'; c.border = 0; c.edge = undefined; c.x += W * .06; c.y -= H * .03; c.locked = false;
       state.layers.splice(state.layers.indexOf(l) + 1, 0, c); ui.tab.image = 'rahmen'; ui.sel = c.id; commit(); toast('Motiv als eigene Ebene – frei verschieben, vergrößern, Rand geben'); return; }
     case 'cutClear': l.cut = { on: true, strokes: [] }; commit(); return;
@@ -1514,7 +1604,7 @@ async function addFiles(files) {
     const src = { kind: 'file', file: f, nw: 0, nh: 0, date: f.lastModified || Date.now(), base: null };
     sources.set(id, src);
     if (files.length > 2) toast(`Fotos werden geladen … ${k + 1} von ${files.length}`);
-    try { src.base = await loadScaled(src, PREVIEW_PX); }
+    try { src.base = await loadScaled(src, PREVIEW_PX); try { src.focus = focusPoint(src.base); } catch {} }
     catch { toast(`„${f.name}“ konnte nicht gelesen werden.`); sources.delete(id); continue; }
     const slot = empties.shift();
     if (slot) {
@@ -1526,13 +1616,13 @@ async function addFiles(files) {
     requestRender();
   }
   if (free && state.tpl) { const n0 = state.slides; layout(true); fit(); if (state.slides !== n0) toast(`In die Vorlage einsortiert · ${state.slides} Slides`); }
-  if (added.length && fresh) { selectLayer(null); pushHistory(); goSlide(0); toast(`${added.length} Fotos · je eine Slide`, 'Vorlage wählen', () => { selectLayer(null); ui.tab.none = 'vorlagen'; renderUI(); }); }
+  if (added.length && fresh) { ui.tab.none = 'vorlagen'; ui.tplCat = 'all'; selectLayer(null); pushHistory(); goSlide(0); toast(`${added.length} Fotos · je eine Slide – oben Vorschläge für passende Vorlagen`); }
   else if (added.length) { ui.tab.image = 'rahmen'; selectLayer(added[added.length - 1].id); pushHistory(); if (!free || !state.tpl) toast(added.length === 1 ? 'Foto eingesetzt' : `${added.length} Fotos eingesetzt`); }
 }
 async function replacePhoto(f) {
   const l = state.layers.find(x => x.id === ui.replaceId); ui.replaceId = null; if (!l || !f) return;
   const id = 's' + newId(), src = { kind: 'file', file: f, nw: 0, nh: 0, date: f.lastModified || Date.now(), base: null };
-  try { src.base = await loadScaled(src, PREVIEW_PX); } catch { toast('Foto konnte nicht gelesen werden.'); return; }
+  try { src.base = await loadScaled(src, PREVIEW_PX); try { src.focus = focusPoint(src.base); } catch {} } catch { toast('Foto konnte nicht gelesen werden.'); return; }
   sources.set(id, src); cache.delete(cacheKey(l)); l.srcId = id; l.stampMs = src.date; resetGeoEdits(l);
   relink(l.id); state.layers.filter(x => x.pane && x.srcId === id).forEach(computeBox); commit(); toast('Foto ersetzt – Bearbeitung bleibt');
 }
@@ -1559,7 +1649,7 @@ async function openProject(id, quiet) {
   if (!quiet) { await saveNow(); toast('Projekt wird geöffnet …'); }
   resetSession(); ui.sample = false; ui.projectId = id; ui.projectName = r.project.name || 'Mein Karussell';
   for (const f of r.files) { const src = { kind: 'file', file: f.blob, nw: 0, nh: 0, date: f.date || Date.now(), base: null };
-    try { src.base = await loadScaled(src, PREVIEW_PX); sources.set(f.srcId, src); savedSrc.add(f.srcId); } catch { console.warn('Quelle fehlt', f.srcId); } }
+    try { src.base = await loadScaled(src, PREVIEW_PX); try { src.focus = focusPoint(src.base); } catch {} sources.set(f.srcId, src); savedSrc.add(f.srcId); } catch { console.warn('Quelle fehlt', f.srcId); } }
   const doc = r.project.doc; state.format = FORMATS[doc.format] ? doc.format : '4:5'; state.slides = doc.slides; state.bg = Object.assign({ dir: 'h', pattern: 'none' }, doc.bg);
   state.tpl = doc.tpl || null;
   state.layers = doc.layers.filter(l => l.type !== 'image' || !l.srcId || sources.has(l.srcId)); relink();
@@ -1587,12 +1677,27 @@ $('#projNew').addEventListener('click', () => { $('#projSheet').hidden = true; n
 $('#closeProj').addEventListener('click', () => $('#projSheet').hidden = true);
 $('#projBtn').addEventListener('click', openProjects);
 $('#helpBtn').addEventListener('click', () => openHelp());
+async function buildReport() {
+  let est = ''; try { const q = await navigator.storage.estimate(); est = `${Math.round(q.usage / 1e6)} MB von ${Math.round(q.quota / 1e6)} MB`; } catch {}
+  let persisted = '?'; try { persisted = await navigator.storage.persisted(); } catch {}
+  const ph = state.layers.filter(l => l.type === 'image' && l.srcId).length;
+  return [`Streifzug Version ${VERSION} · ${new Date().toLocaleString('de-DE')}`, navigator.userAgent, `Fenster ${innerWidth}×${innerHeight}, Bildschirm ${screen.width}×${screen.height}, DPR ${devicePixelRatio}, ${navigator.standalone ? 'Home-Bildschirm' : 'Browser'}`,
+    `Projekt: ${state.slides} Slides, ${state.layers.length} Ebenen, ${ph} Fotos, Format ${state.format}, Vorlage ${state.tpl ? state.tpl.kind : '–'}`, `Speicher: ${est || '?'} · dauerhaft: ${persisted} · Hintergrund-Rechner: ${poolOK() ? 'an' : 'aus'}`, '',
+    'Letzte Meldungen:', ...(errLog.length ? errLog.slice(-25).map(e => `${new Date(e.t).toLocaleTimeString('de-DE')}${e.old ? ' (vorher)' : ''} ${e.kind}: ${e.msg}`) : ['keine'])].join('\n');
+}
+async function reportProblem(how) {
+  const txt = await buildReport();
+  if (how === 'share' && navigator.share) { try { await navigator.share({ title: 'Streifzug Fehlerbericht', text: txt }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+  try { await navigator.clipboard.writeText(txt); toast('Fehlerbericht kopiert – einfach in den Chat einfügen'); } catch { toast('Kopieren ging nicht – nutze „Teilen“'); }
+}
 function openHelp() {
   $('#helpSheet').hidden = false;
   // kleine Technik-Zeile, hilft bei Darstellungsproblemen auf dem iPhone
   const pr = document.createElement('div'); pr.style.cssText = 'position:fixed;bottom:0;height:env(safe-area-inset-bottom,0px)'; document.body.append(pr);
   const a = $('#app').getBoundingClientRect(); $('#diag').textContent = `Version ${VERSION} · Fenster ${innerWidth}×${innerHeight} · Bildschirm ${screen.width}×${screen.height} · App bis ${Math.round(a.bottom)} · unten frei ${pr.offsetHeight} · ${navigator.standalone ? 'Home-Bildschirm' : 'Browser'}${document.documentElement.classList.contains('pwa-short') ? ' · kurz' : ''}`; pr.remove();
 }
+$('#reportCopy').addEventListener('click', () => reportProblem('copy'));
+$('#reportShare').addEventListener('click', () => reportProblem('share'));
 $('#closeHelp').addEventListener('click', () => $('#helpSheet').hidden = true);
 
 /* ---------- Vorschau ---------- */
@@ -1689,7 +1794,7 @@ document.addEventListener('keydown', e => {
 });
 let keyT;
 /* ---------- Kopieren & Einfügen ---------- */
-const VERSION = 38;
+const VERSION = 39;
 const CLIP_MARK = 'streifzug-ebene:';
 function copyLayer(l) {
   ui.layerClip = clone(l); LS.set('layerClip', ui.layerClip); haptic();
