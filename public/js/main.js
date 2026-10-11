@@ -1689,7 +1689,7 @@ document.addEventListener('keydown', e => {
 });
 let keyT;
 /* ---------- Kopieren & Einfügen ---------- */
-const VERSION = 37;
+const VERSION = 38;
 const CLIP_MARK = 'streifzug-ebene:';
 function copyLayer(l) {
   ui.layerClip = clone(l); LS.set('layerClip', ui.layerClip); haptic();
@@ -1715,37 +1715,49 @@ function pasteText(txt) {
 }
 /* Einfügen-Knopf: System-Zwischenablage lesen (Bild vor Text), sonst die zuletzt kopierte Ebene */
 async function pasteAny() {
-  let denied = false, seen = false;
+  let denied = false, seen = false, found = [];
   try {
     if (navigator.clipboard && navigator.clipboard.read) {
       const items = await navigator.clipboard.read(), texts = [];
       for (const it of items) {
-        seen = seen || it.types.length > 0;
-        // Bilder zuerst – iOS liefert Fotos u. a. als image/png, image/jpeg oder image/heic
-        const t = it.types.find(x => x.startsWith('image/'));
-        if (t) { const blob = await it.getType(t); await addFiles([new File([blob], 'eingefuegt.' + (t.split('/')[1] || 'png'), { type: t })]); return; }
-        for (const ty of ['text/plain', 'text/uri-list']) if (it.types.includes(ty)) texts.push(await (await it.getType(ty)).text());
-        if (it.types.includes('text/html')) { const h = await (await it.getType('text/html')).text(), d = new DOMParser().parseFromString(h, 'text/html'); texts.push(d.body.textContent || ''); }
+        seen = seen || it.types.length > 0; found.push(...it.types);
+        // Bilder zuerst – iOS liefert Fotos als image/png (teils auch jpeg/heic); jeden Bildtyp einzeln versuchen
+        const imgTypes = it.types.filter(x => x.startsWith('image/')).sort((a, b) => (b === 'image/png') - (a === 'image/png'));
+        for (const t of imgTypes) { try { const blob = await it.getType(t); if (blob && blob.size) { await addFiles([new File([blob], 'eingefuegt.' + (t.split('/')[1] || 'png').replace('jpeg', 'jpg'), { type: blob.type || t })]); return; } } catch (err) { console.warn(err); } }
+        // manche Quellen geben das Bild unter einem anderen Typ heraus
+        for (const t of it.types) if (!t.startsWith('text/') && !t.startsWith('image/')) { try { const blob = await it.getType(t); if (blob && blob.type.startsWith('image/')) { await addFiles([new File([blob], 'eingefuegt.png', { type: blob.type })]); return; } } catch {} }
+        for (const ty of ['text/plain', 'text/uri-list']) if (it.types.includes(ty)) { try { texts.push(await (await it.getType(ty)).text()); } catch {} }
+        if (it.types.includes('text/html')) { try { const h = await (await it.getType('text/html')).text(), d = new DOMParser().parseFromString(h, 'text/html'), im = d.querySelector('img[src^="data:image"]');
+          if (im) { const blob = await (await fetch(im.src)).blob(); await addFiles([new File([blob], 'eingefuegt.png', { type: blob.type })]); return; } texts.push(d.body.textContent || ''); } catch {} }
       }
       for (const txt of texts) if (pasteText(txt)) return;
     } else if (navigator.clipboard && navigator.clipboard.readText) { const txt = await navigator.clipboard.readText(); seen = !!txt; if (pasteText(txt)) return; }
-  } catch (e) { denied = true; }
-  if (ui.layerClip) { pasteLayer(); return; }
-  toast(denied ? 'Einfügen wurde nicht erlaubt – nochmal tippen und „Einsetzen“ wählen'
-    : seen ? 'Das in der Zwischenablage kann hier nicht eingefügt werden – kopiere ein Bild, einen Text oder ein Element'
+  } catch (e) { console.warn(e); denied = true; }
+  // die zuletzt in Streifzug kopierte Ebene nur nehmen, wenn die Zwischenablage nichts anderes enthält
+  if (ui.layerClip && !seen) { pasteLayer(); return; }
+  toast(denied ? 'Einfügen wurde nicht erlaubt – nochmal tippen und „Einsetzen“ wählen, oder unter „Element“ ins Feld lange drücken'
+    : seen ? `Das lässt sich hier nicht einfügen (${[...new Set(found)].join(', ').slice(0, 60)}) – versuch es unter „Element“: ins Feld lange drücken → „Einsetzen“`
     : 'Die Zwischenablage ist leer – kopiere ein Bild, einen Text oder ein Element');
 }
+const isImgFile = f => f && (f.type.startsWith('image/') || /\.(heic|heif|jpe?g|png|webp|avif|gif)$/i.test(f.name || ''));
 document.addEventListener('paste', e => {
   if (e.target.matches && e.target.matches('input,textarea')) return; const dt = e.clipboardData; if (!dt) return;
-  if (e.target.closest && e.target.closest('.paste-pad')) { e.preventDefault(); document.activeElement && document.activeElement.blur(); }
-  const files = [...dt.files].filter(f => f.type.startsWith('image/') || /\.(heic|heif|jpe?g|png|webp|avif)$/i.test(f.name));
-  if (files.length) { e.preventDefault(); addFiles(files); return; }
-  const txt = dt.getData('text/plain'); if (txt) { e.preventDefault(); if (!pasteText(txt) && ui.layerClip) pasteLayer(); return; }
-  if (ui.layerClip) { e.preventDefault(); pasteLayer(); return; }
-  if (e.target.closest && e.target.closest('.paste-pad')) toast('Das in der Zwischenablage kann hier nicht eingefügt werden');
+  const pad = e.target.closest && e.target.closest('.paste-pad');
+  let files = [...(dt.files || [])].filter(isImgFile);
+  if (!files.length && dt.items) files = [...dt.items].filter(it => it.kind === 'file').map(it => it.getAsFile()).filter(isImgFile);
+  if (files.length) { e.preventDefault(); pad && pad.blur(); addFiles(files); return; }
+  const html = dt.getData('text/html'); if (html && /<img/i.test(html)) { const im = new DOMParser().parseFromString(html, 'text/html').querySelector('img');
+    if (im && /^(data:image|blob:|https?:)/.test(im.src)) { e.preventDefault(); pad && pad.blur(); fetch(im.src).then(r => r.blob()).then(b => b.type.startsWith('image/') ? addFiles([new File([b], 'eingefuegt.png', { type: b.type })]) : toast('Das Bild konnte nicht gelesen werden')).catch(() => toast('Das Bild konnte nicht gelesen werden')); return; } }
+  const txt = dt.getData('text/plain'); if (txt) { e.preventDefault(); pad && pad.blur(); if (!pasteText(txt) && ui.layerClip) pasteLayer(); return; }
+  if (pad) { // iOS fügt Bilder teils direkt als <img> ins Feld ein – dann von dort übernehmen
+    setTimeout(async () => { const im = pad.querySelector('img'); if (im && im.src) { try { const b = await (await fetch(im.src)).blob(); if (b.type.startsWith('image/')) { await addFiles([new File([b], 'eingefuegt.png', { type: b.type })]); renderPanel(); return; } } catch (err) { console.warn(err); } }
+      renderPanel(); if (ui.layerClip && !dt.types.length) pasteLayer(); else toast('Das lässt sich hier nicht einfügen'); }, 60);
+    return;
+  }
+  if (ui.layerClip && !dt.types.length) { e.preventDefault(); pasteLayer(); }
 });
 // Einfügefeld: nichts hineintippen lassen, nur „Einsetzen“
-document.addEventListener('beforeinput', e => { if (e.target.closest && e.target.closest('.paste-pad') && e.inputType !== 'insertFromPaste') e.preventDefault(); });
+document.addEventListener('beforeinput', e => { if (e.target.closest && e.target.closest('.paste-pad') && !/^insertFromPaste|^insertFromDrop/.test(e.inputType)) e.preventDefault(); });
 stage.addEventListener('dragover', e => e.preventDefault());
 stage.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files); });
 
