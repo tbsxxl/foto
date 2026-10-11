@@ -156,10 +156,19 @@ export function haptic() {
       const i = document.createElement('input'); i.type = 'checkbox'; i.setAttribute('switch', ''); i.tabIndex = -1; hapEl.append(i); document.body.append(hapEl); }
     hapEl.click(); } catch {}
 }
+const TI = {
+  ok: '<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z" fill="currentColor"/><path d="m7.5 12.3 3 3 6-6.3" stroke="#000" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+  warn: '<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z" fill="currentColor"/><path d="M12 7v6" stroke="#000" stroke-width="2.4" stroke-linecap="round"/><circle cx="12" cy="16.6" r="1.4" fill="#000"/>',
+  info: '<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z" fill="currentColor"/><path d="M12 11v6" stroke="#000" stroke-width="2.4" stroke-linecap="round"/><circle cx="12" cy="7.6" r="1.4" fill="#000"/>'
+};
+/* Symbol passend zur Meldung: Hinweis, Warnung oder erledigt */
+const toastKind = m => /^tipp|^tippe|^ziehen|^male|–.*(antippen|tippen|wählen)/i.test(m) ? 'info' : /nicht|fehl|leer|zuerst|maximal|kein|zu groß|erlaubt/i.test(m) ? 'warn' : 'ok';
 export function toast(msg, actLabel, act) {
-  const t = $('#toast'); t.textContent = msg; t.hidden = false; t.classList.remove('in', 'out'); void t.offsetWidth; t.classList.add('in');
+  const t = $('#toast'), k = toastKind(msg); t.innerHTML = `<span class="ti ${k}"><svg viewBox="0 0 24 24" aria-hidden="true">${TI[k]}</svg></span>`;
+  const sp = document.createElement('span'); sp.textContent = msg; t.append(sp); t.hidden = false; t.classList.remove('in', 'out'); void t.offsetWidth; t.classList.add('in');
   if (actLabel && act) { const b = document.createElement('button'); b.className = 'toast-act'; b.textContent = actLabel; b.onclick = () => { t.hidden = true; act(); }; t.append(b); }
-  clearTimeout(toastT); toastT = setTimeout(() => { t.classList.add('out'); toastT = setTimeout(() => { t.hidden = true; t.classList.remove('out'); }, 200); }, actLabel ? 4500 : 2200);
+  if (k === 'warn') haptic();
+  clearTimeout(toastT); toastT = setTimeout(() => { t.classList.add('out'); toastT = setTimeout(() => { t.hidden = true; t.classList.remove('out'); }, 200); }, actLabel ? 4500 : 2400);
 }
 
 export const stampText = (ms, fmt) => {

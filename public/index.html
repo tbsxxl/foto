@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Streifzug</title>
 <meta name="description" content="Nahtlose Instagram-Karussells mit Looks, Lightroom-Reglern und Retro-Effekten – direkt im Browser.">
-<meta name="theme-color" content="#121418">
+<meta name="theme-color" content="#000000">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -28,19 +28,15 @@
       <button class="icon-btn" id="undoBtn" aria-label="Rückgängig" title="Rückgängig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
       <button class="icon-btn" id="redoBtn" aria-label="Wiederholen" title="Wiederholen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg></button>
       <button class="btn ghost" id="previewBtn" aria-label="Vorschau"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10 9.5v5l4-2.5z" fill="currentColor"/></svg><span class="lbl-long">Vorschau</span></button>
-      <button class="btn primary" id="exportBtn">Exportieren</button>
+      <button class="btn primary" id="exportBtn" aria-label="Exportieren und teilen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3M7.5 7.5 12 3l4.5 4.5"/><path d="M8 11H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-2"/></svg>Teilen</button>
     </div>
   </header>
   <main class="workspace">
     <div class="stage" id="stage"><canvas id="cv" aria-label="Leinwand mit allen Slides"></canvas>
       <div class="quick" id="quick" hidden>
-        <button class="qbtn" data-q="dup" aria-label="Duplizieren" title="Duplizieren"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></button>
-        <button class="qbtn" data-q="copyLayer" aria-label="Kopieren" title="Kopieren"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3" width="12" height="15" rx="2"/><path d="M4 8v11a2 2 0 0 0 2 2h9"/></svg></button>
-        <button class="qbtn" data-q="front" aria-label="Nach vorn" title="Nach vorn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
-        <button class="qbtn" data-q="back" aria-label="Nach hinten" title="Nach hinten"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg></button>
-        <button class="qbtn" data-q="lock" aria-label="Sperren" title="Sperren"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
-        <button class="qbtn danger" data-q="del" aria-label="Löschen" title="Löschen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
+        <button class="qbtn" data-q="menu" aria-label="Aktionen" title="Aktionen" aria-haspopup="menu"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="12" r="1.9" fill="currentColor"/><circle cx="12" cy="12" r="1.9" fill="currentColor"/><circle cx="18.5" cy="12" r="1.9" fill="currentColor"/></svg></button>
       </div>
+      <div class="hud" id="hud" hidden></div>
       <div class="empty" id="emptyState" hidden>
         <b>Leg los</b><span>Wähle Fotos oder starte mit einer Vorlage – leere Felder füllst du später per Antippen.</span>
         <div class="row"><label class="btn primary" for="fileIn">Fotos wählen</label><button class="btn ghost" id="emptyTpl">Vorlage wählen</button></div>
@@ -58,7 +54,7 @@
 <input type="file" id="fileIn" accept="image/*" multiple hidden>
 <input type="file" id="camIn" accept="image/*" capture="environment" hidden>
 
-<div class="sheet" id="previewSheet" hidden>
+<div class="sheet" id="previewSheet" role="dialog" aria-modal="true" aria-label="Vorschau" hidden>
   <div class="sheet-head"><h2>Vorschau</h2><button class="btn ghost small" id="closePreview">Schließen</button></div>
   <div class="sheet-body">
     <div class="ig">
@@ -70,8 +66,8 @@
   </div>
 </div>
 
-<div class="sheet" id="exportSheet" hidden>
-  <div class="sheet-head"><h2>Export</h2><div class="row"><button class="btn primary small" id="saveAll" hidden>Alle sichern</button><button class="btn ghost small" id="closeExport">Schließen</button></div></div>
+<div class="sheet" id="exportSheet" role="dialog" aria-modal="true" aria-label="Teilen" hidden>
+  <div class="sheet-head"><h2>Teilen</h2><div class="row"><button class="btn primary small" id="saveAll" hidden>Alle teilen</button><button class="btn ghost small" id="closeExport">Schließen</button></div></div>
   <div class="sheet-body">
     <div class="chips" id="expOpts"></div>
     <p class="progress" id="expProgress">Wird vorbereitet …</p><div class="bar"><i id="expBar"></i></div>
@@ -80,14 +76,14 @@
   </div>
 </div>
 
-<div class="sheet" id="projSheet" hidden>
+<div class="sheet" id="projSheet" role="dialog" aria-modal="true" aria-label="Projekte" hidden>
   <div class="sheet-head"><h2>Projekte</h2><div class="row"><button class="btn primary small" id="projNew">Neues Projekt</button><button class="btn ghost small" id="closeProj">Schließen</button></div></div>
   <div class="sheet-body">
     <div class="proj-grid" id="projGrid"></div>
     <p class="note exp-note">Projekte werden automatisch gespeichert – nur auf diesem Gerät, in diesem Browser. Fotos werden nirgendwohin hochgeladen.</p>
   </div>
 </div>
-<div class="sheet" id="helpSheet" hidden>
+<div class="sheet" id="helpSheet" role="dialog" aria-modal="true" aria-label="So geht's" hidden>
   <div class="sheet-head"><h2>So geht's</h2><button class="btn ghost small" id="closeHelp">Schließen</button></div>
   <div class="sheet-body"><div class="help">
     <section><h3>Loslegen</h3><ul>
@@ -106,7 +102,6 @@
     <section><h3>Texte &amp; Elemente</h3><ul>
       <li>Farbreihen zeigen oben <b>Farben aus deinen Fotos</b> und zuletzt gewählte eigene Farben.</li>
       <li><b>„Auf jede Slide kopieren“</b> (Ebene) – praktisch für Name, Handle oder Logo.</li>
-      <li><b>Kopieren <li>Am Computer: <b>⌘C / ⌘V</b> kopieren &amp; einfügen, <b>⌘D</b> duplizieren, Pfeiltasten verschieben.</li>amp; Einfügen:</b> Element antippen → Kopieren-Symbol oben, dann „📋 Einfügen“ (auch auf einer anderen Slide). Bilder und Texte, die du in Fotos, Safari oder Notizen kopiert hast, fügst du genauso ein.</li>
       <li><b>Kopieren &amp; Einfügen:</b> Element antippen → Kopieren-Symbol oben, dann „📋 Einfügen“ (auch auf einer anderen Slide). Bilder und Texte aus Fotos, Safari oder Notizen fügst du genauso ein.</li>
       <li>Am Computer: <b>⌘C / ⌘V</b> kopieren &amp; einfügen, <b>⌘D</b> duplizieren, Pfeiltasten verschieben.</li></ul></section>
     <section><h3>Sichern &amp; teilen</h3><ul>
@@ -116,7 +111,23 @@
     <p class="note" id="diag" style="opacity:.6;font-size:11px"></p>
   </div></div>
 </div>
-<div class="toast" id="toast" hidden></div>
+<div class="welcome" id="welcome" role="dialog" aria-modal="true" aria-labelledby="welcomeT" hidden>
+  <div class="wl-body">
+    <div class="wl-mark" aria-hidden="true"><span>S</span></div>
+    <h1 id="welcomeT">Willkommen bei<br><span class="mark">Streif<i>zug</i></span></h1>
+    <ul class="wl-list">
+      <li><span class="wl-ico" style="--c:#0a84ff"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="6" height="12" rx="1.5"/><rect x="9" y="6" width="6" height="12" rx="1.5"/><rect x="16" y="6" width="6" height="12" rx="1.5"/></svg></span><div><b>Nahtlose Karussells</b><span>Fotos dürfen über die Slide-Grenzen ragen. Über 30 Vorlagen machen in Sekunden einen Post daraus.</span></div></li>
+      <li><span class="wl-ico" style="--c:#ff9f0a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="9" r="5"/><circle cx="16" cy="9" r="5"/><circle cx="12" cy="15" r="5"/></svg></span><div><b>Looks wie auf Film</b><span>Fuji- und Kodak-Looks, Regler wie in Lightroom, Motive per Antippen freistellen.</span></div></li>
+      <li><span class="wl-ico" style="--c:#30d158"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/></svg></span><div><b>Bleibt auf deinem iPhone</b><span>Kein Konto, kein Upload. Alles wird direkt auf dem Gerät berechnet und gespeichert.</span></div></li>
+    </ul>
+  </div>
+  <div class="wl-foot">
+    <label class="btn primary wl-go" for="fileIn" id="welcomeGo">Fotos wählen</label>
+    <button class="wl-look" id="welcomeLook">Erst mal umschauen</button>
+  </div>
+</div>
+<div class="ctx" id="ctx" hidden><div class="ctx-menu" id="ctxMenu" role="menu"></div></div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 <script type="module" src="js/main.js"></script>
 </body>
 </html>
