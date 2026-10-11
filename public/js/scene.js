@@ -664,7 +664,7 @@ export function parseChart(t) {
   return String(t || '').split(/\n/).map(r => r.trim()).filter(Boolean).map(r => { const mm = r.match(/^(.*?)[\s:;=]*(-?\d+(?:[.,]\d+)?)\s*(%?)$/); return mm ? [mm[1].trim(), parseFloat(mm[2].replace(',', '.'))] : [r, 0]; }).slice(0, 12);
 }
 function drawChart(c, l, x, y, w, h) {
-  const ch = l.chart || {}, data = parseChart(ch.data), cols = ch.colors && ch.colors.length ? ch.colors : CHART_PALETTES[ch.pal || 'bunt'], ink = ch.ink || '#1d1d1d', type = ch.type || 'bar';
+  const ch = l.chart || {}, data = parseChart(ch.data), cols = ch.colors && ch.colors.length ? ch.colors : CHART_PALETTES[ch.pal] || CHART_PALETTES.bunt, ink = ch.ink || '#1d1d1d', type = ch.type || 'bar';
   if (ch.card) { c.fillStyle = ch.cardColor || '#ffffff'; roundPath(c, x, y, w, h, Math.min(w, h) * .06); c.fill(); }
   c.shadowColor = 'transparent'; if (!data.length) return;
   const pad = Math.min(w, h) * (ch.card ? .08 : .02), X = x + pad, Y = y + pad, W = w - 2 * pad, H = h - 2 * pad, fs = Math.max(10, Math.min(W, H) * .055), font = `600 ${fs}px "${ch.font || 'Instrument Sans'}", system-ui, sans-serif`;
