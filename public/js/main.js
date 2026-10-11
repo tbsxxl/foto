@@ -116,7 +116,7 @@ function openMenu(items, x, y, anchor) {
   ctxMenu.classList.remove('in'); void ctxMenu.offsetWidth; ctxMenu.classList.add('in'); ctxMenu.querySelector('.ctx-item')?.focus({ preventScroll: true });
 }
 function closeMenu() { if (ctxEl.hidden) return; ctxEl.classList.add('out'); setTimeout(() => { ctxEl.hidden = true; ctxEl.classList.remove('out'); }, 160); }
-ctxEl.addEventListener('click', e => { const b = e.target.closest('[data-ci]'); if (!b && lpMenu && (lpMenu.held || performance.now() < lpMenu.until)) return; lpMenu = null; closeMenu(); if (b) { const it = ctxItems[+b.dataset.ci]; haptic(); setTimeout(it[2], 10); } });
+ctxEl.addEventListener('click', e => { const b = e.target.closest('[data-ci]'); if (!b && lpMenu && (lpMenu.held || performance.now() < lpMenu.until)) return; lpMenu = null; closeMenu(); if (b) { const it = ctxItems[+b.dataset.ci]; it[2](); haptic(); } }); // sofort ausführen: Safari erlaubt die Zwischenablage nur direkt beim Tippen
 ctxEl.addEventListener('contextmenu', e => e.preventDefault());
 /* Mess-Pille beim Drehen und Skalieren */
 const hud = $('#hud');
@@ -1689,7 +1689,7 @@ document.addEventListener('keydown', e => {
 });
 let keyT;
 /* ---------- Kopieren & Einfügen ---------- */
-const VERSION = 36;
+const VERSION = 37;
 const CLIP_MARK = 'streifzug-ebene:';
 function copyLayer(l) {
   ui.layerClip = clone(l); LS.set('layerClip', ui.layerClip); haptic();
