@@ -256,9 +256,14 @@ export function drawScene(c, opts = {}) {
   // freigestelltes Motiv liegt über den Texten/Elementen darüber – bis zum nächsten Foto
   let pend = null;
   const flush = () => { if (pend) { drawCut(c, pend, opts); pend = null; } };
+  // nur zeichnen, was im sichtbaren Ausschnitt liegt (Vorschau/Export zeichnen Slide für Slide)
+  let vx0 = -Infinity, vx1 = Infinity, vy0 = -Infinity, vy1 = Infinity;
+  try { const inv = c.getTransform().inverse(), cw = c.canvas.width, ch = c.canvas.height, pts = [[0, 0], [cw, 0], [0, ch], [cw, ch]].map(([x, y]) => [inv.a * x + inv.c * y + inv.e, inv.b * x + inv.d * y + inv.f]);
+    vx0 = Math.min(...pts.map(q => q[0])); vx1 = Math.max(...pts.map(q => q[0])); vy0 = Math.min(...pts.map(q => q[1])); vy1 = Math.max(...pts.map(q => q[1])); } catch {}
   for (const l of state.layers) {
     if (l.hidden) continue;
-    if (l.type === 'image') flush();
+    if (l.type === 'image') flush(); // Reihenfolge beim freigestellten Motiv bleibt gleich, auch wenn diese Ebene übersprungen wird
+    if (vx1 !== Infinity) { const b = boxOf(l), R = Math.hypot(b.ow, b.oh) * .6 + Math.max(b.ow, b.oh) * .08; if (l.x + R < vx0 || l.x - R > vx1 || l.y + R < vy0 || l.y - R > vy1) continue; }
     c.save(); c.translate(l.x, l.y); c.rotate(l.rot * Math.PI / 180); c.globalAlpha = l.opacity ?? 1;
     if (l.blend && l.blend !== 'source-over') c.globalCompositeOperation = l.blend;
     if (l.type === 'image') drawImageLayer(c, l, opts); else if (l.type === 'text') drawTextLayer(c, l); else drawShapeLayer(c, l);

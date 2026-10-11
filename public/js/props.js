@@ -5,7 +5,7 @@
 const cache = new Map();
 function memo(key, make) {
   let v = cache.get(key);
-  if (!v) { v = make(); cache.set(key, v); if (cache.size > 120) cache.delete(cache.keys().next().value); }
+  if (!v) { v = make(); cache.set(key, v); if (cache.size > 220) { const k0 = cache.keys().next().value, old = cache.get(k0); cache.delete(k0); if (old && old.width) old.width = old.height = 0; } } else { cache.delete(key); cache.set(key, v); } // LRU
   return v;
 }
 function hash(x, y, s) {
@@ -165,7 +165,7 @@ function tapeCanvas(W, H, fill, seed, kind, pattern) {
 }
 
 /* ---------- Zeichnen in die Szene ---------- */
-const quant = v => v < 64 ? Math.max(6, Math.round(v)) : Math.round(v / 8) * 8;
+const quant = v => v < 48 ? Math.max(6, Math.round(v)) : Math.round(Math.pow(1.12, Math.round(Math.log(v) / Math.log(1.12)))); // Größenstufen à 12 %: weniger Neuberechnungen beim Zoomen
 export function drawTapeReal(c, l, x, y, w, h) {
   const sc = devScale(c); let W = quant(Math.min(1100, w * sc)); const H = Math.max(4, Math.round(W * h / w));
   const cv = tapeCanvas(W, H, l.fill, ((l.id | 0) + (l.seed || 0) * 7919) % 99991, l.tape, l.pattern);
