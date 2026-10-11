@@ -401,7 +401,34 @@ function maskData(d, mw, mh) {
     const px = x.getImageData(0, 0, mw, mh).data; m = new Float32Array(mw * mh); for (let i = 0; i < m.length; i++) m[i] = px[i * 4] / 255; e.sized.set(k, m); if (e.sized.size > 3) e.sized.delete(e.sized.keys().next().value); }
   return m;
 }
-export function maskToPNG(m, maxSide = 900) { // Ergebnis der Erkennung → kompaktes Graustufen-PNG
+/* Rohes Modell-Ergebnis säubern: Unsicherheit → klare Kante, nur Bereiche behalten, die mit der angetippten Stelle verbunden sind */
+export function cleanMask(m, u, v) {
+  const { w, h } = m, d = m.data, out = new Float32Array(d.length), st = x => x <= .3 ? 0 : x >= .7 ? 1 : (x = (x - .3) / .4, x * x * (3 - 2 * x));
+  for (let i = 0; i < d.length; i++) out[i] = st(d[i]);
+  // Zusammenhangskomponenten (Schwelle 0,5), Startpunkt = Antippstelle bzw. nächster sicherer Pixel
+  const lab = new Int32Array(d.length), sizes = [0]; let n = 0;
+  for (let i = 0; i < d.length; i++) { if (lab[i] || out[i] < .5) continue; n++; let sz = 0; const stack = [i]; lab[i] = n;
+    while (stack.length) { const k = stack.pop(); sz++; const x = k % w, y = (k / w) | 0;
+      for (const q of [x > 0 ? k - 1 : -1, x < w - 1 ? k + 1 : -1, y > 0 ? k - w : -1, y < h - 1 ? k + w : -1]) if (q >= 0 && !lab[q] && out[q] >= .5) { lab[q] = n; stack.push(q); } }
+    sizes.push(sz); }
+  if (!n) return { w, h, data: out };
+  const tx = Math.min(w - 1, Math.round(u * w)), ty = Math.min(h - 1, Math.round(v * h)); let main = lab[ty * w + tx];
+  if (!main) { let best = 1e18; for (let i = 0; i < d.length; i += 3) if (lab[i]) { const dd = ((i % w) - tx) ** 2 + (((i / w) | 0) - ty) ** 2; if (dd < best) { best = dd; main = lab[i]; } } }
+  const keep = new Uint8Array(n + 1); keep[main] = 1; for (let k = 1; k <= n; k++) if (sizes[k] > sizes[main] * .3) keep[k] = 1;
+  // weiche Randpixel gehören zur Komponente ihres sicheren Nachbarn – sonst entfernen
+  const near = new Uint8Array(d.length); for (let i = 0; i < d.length; i++) if (lab[i] && keep[lab[i]]) near[i] = 1;
+  for (let pass = 0; pass < 3; pass++) { const nn = near.slice(); for (let i = 0; i < d.length; i++) if (!near[i] && out[i] > 0) { const x = i % w; if ((x > 0 && near[i - 1]) || (x < w - 1 && near[i + 1]) || near[i - w] || near[i + w]) nn[i] = 1; } near.set(nn); }
+  for (let i = 0; i < d.length; i++) if (!near[i]) out[i] = 0;
+  // kleine, rundum eingeschlossene Löcher füllen (z. B. eine Hand, die das Modell übersehen hat)
+  let area = 0; for (let i = 0; i < d.length; i++) area += out[i] >= .5;
+  const seen = new Uint8Array(d.length);
+  for (let i = 0; i < d.length; i++) { if (seen[i] || out[i] >= .5) continue; const comp = [], stack = [i]; seen[i] = 1; let border = false;
+    while (stack.length) { const k = stack.pop(); comp.push(k); const x = k % w, y = (k / w) | 0; if (!x || !y || x === w - 1 || y === h - 1) border = true;
+      for (const q of [x > 0 ? k - 1 : -1, x < w - 1 ? k + 1 : -1, y > 0 ? k - w : -1, y < h - 1 ? k + w : -1]) if (q >= 0 && !seen[q] && out[q] < .5) { seen[q] = 1; stack.push(q); } }
+    if (!border && comp.length < area * .025) for (const k of comp) out[k] = 1; }
+  return { w, h, data: out };
+}
+export function maskToPNG(m, maxSide = 1280) { // Ergebnis der Erkennung → kompaktes Graustufen-PNG
   const s = Math.min(1, maxSide / Math.max(m.w, m.h)), w = Math.max(1, Math.round(m.w * s)), h = Math.max(1, Math.round(m.h * s));
   const full = mk(m.w, m.h), fx = full.getContext('2d'), id = fx.createImageData(m.w, m.h);
   for (let i = 0; i < m.data.length; i++) { const v = Math.round(clamp(m.data[i]) * 255), j = i * 4; id.data[j] = id.data[j + 1] = id.data[j + 2] = v; id.data[j + 3] = 255; }
@@ -415,6 +442,29 @@ function boxBlur(a, w, h, r) {
   for (let x = 0; x < w; x++) { let s = 0; for (let y = -r; y <= r; y++) s += t[clamp(y, 0, h - 1) * w + x];
     for (let y = 0; y < h; y++) { o[y * w + x] = s / n; s += t[Math.min(h - 1, y + r + 1) * w + x] - t[Math.max(0, y - r) * w + x]; } }
   return o;
+}
+/* Kantenerhaltender Filter (Guided Filter, Farbversion): legt die Maskenkante an echte Bildkanten an – Haare, Fell, Ränder */
+function guidedEdges(a, ref, w, h, MM) {
+  const N = w * h, r = Math.max(2, Math.round(MM * .006)), eps = 6e-4, I = [0, 1, 2].map(c => { const o = new Float32Array(N); for (let i = 0; i < N; i++) o[i] = ref[i * 4 + c] / 255; return o; });
+  const mul = (x, y) => { const o = new Float32Array(N); for (let i = 0; i < N; i++) o[i] = x[i] * y[i]; return o; }, B = x => boxBlur(x, w, h, r);
+  const mI = I.map(B), mp = B(a), mIp = I.map(c => B(mul(c, a))), cov = [[0, 0], [0, 1], [0, 2], [1, 1], [1, 2], [2, 2]].map(([i, j]) => B(mul(I[i], I[j])));
+  const A = [new Float32Array(N), new Float32Array(N), new Float32Array(N)], bb = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const m0 = mI[0][i], m1 = mI[1][i], m2 = mI[2][i], p = mp[i];
+    const c0 = mIp[0][i] - m0 * p, c1 = mIp[1][i] - m1 * p, c2 = mIp[2][i] - m2 * p;
+    const s00 = cov[0][i] - m0 * m0 + eps, s01 = cov[1][i] - m0 * m1, s02 = cov[2][i] - m0 * m2, s11 = cov[3][i] - m1 * m1 + eps, s12 = cov[4][i] - m1 * m2, s22 = cov[5][i] - m2 * m2 + eps;
+    const i00 = s11 * s22 - s12 * s12, i01 = s02 * s12 - s01 * s22, i02 = s01 * s12 - s02 * s11, det = s00 * i00 + s01 * i01 + s02 * i02;
+    if (Math.abs(det) < 1e-14) { A[0][i] = A[1][i] = A[2][i] = 0; bb[i] = p; continue; }
+    const i11 = s00 * s22 - s02 * s02, i12 = s02 * s01 - s00 * s12, i22 = s00 * s11 - s01 * s01;
+    const a0 = (c0 * i00 + c1 * i01 + c2 * i02) / det, a1 = (c0 * i01 + c1 * i11 + c2 * i12) / det, a2 = (c0 * i02 + c1 * i12 + c2 * i22) / det;
+    A[0][i] = a0; A[1][i] = a1; A[2][i] = a2; bb[i] = p - a0 * m0 - a1 * m1 - a2 * m2;
+  }
+  mIp.length = 0; cov.length = 0; mI.length = 0; // freigeben
+  const mA = A.map(B), mb = B(bb), out = new Float32Array(N); A.length = 0;
+  for (let i = 0; i < N; i++) { const q = mA[0][i] * I[0][i] + mA[1][i] * I[1][i] + mA[2][i] * I[2][i] + mb[i];
+    // nur am Rand wirken lassen; klare Innen- und Außenflächen bleiben exakt
+    out[i] = mp[i] > .985 ? 1 : mp[i] < .015 ? 0 : clamp((q - .5) * 1.25 + .5); }
+  return out;
 }
 /* Kanten an die Bildfarben anpassen: lokales Farbmodell von Motiv und Hintergrund, Alpha per Projektion (gut für Haare/Fell) */
 function refineEdges(a, ref, mw, mh, MM) {
@@ -434,7 +484,7 @@ function refineEdges(a, ref, mw, mh, MM) {
   return out;
 }
 export function cutMask(src, strokes, opt = {}) {
-  const s = Math.min(1, 720 / Math.max(src.width, src.height)), mw = Math.max(1, Math.round(src.width * s)), mh = Math.max(1, Math.round(src.height * s)), MM = Math.max(mw, mh);
+  const res = strokes.some(st => st.m === 'ai' || st.m === 'aisub') ? 900 : 720, s = Math.min(1, res / Math.max(src.width, src.height)), mw = Math.max(1, Math.round(src.width * s)), mh = Math.max(1, Math.round(src.height * s)), MM = Math.max(mw, mh);
   const ref = shrink(src, mw, mh).getContext('2d', { willReadFrequently: true }).getImageData(0, 0, mw, mh).data; let a = new Float32Array(mw * mh), incomplete = false;
   for (const st of strokes) {
     if (st.m === 'ai' || st.m === 'aisub') { const m = maskData(st.d, mw, mh); if (!m) { incomplete = true; continue; }
@@ -461,7 +511,7 @@ export function cutMask(src, strokes, opt = {}) {
       dab(px, py);
     }
   }
-  if (opt.refine) { a = refineEdges(a, ref, mw, mh, MM); for (let i = 0; i < a.length; i++) if (a[i] < .08) a[i] = 0; else if (a[i] > .94) a[i] = 1; }
+  if (opt.refine) { a = guidedEdges(a, ref, mw, mh, MM); for (let i = 0; i < a.length; i++) if (a[i] < .04) a[i] = 0; else if (a[i] > .97) a[i] = 1; }
   const f = Math.round((opt.feather || 0) * MM / 720 * 1.5), sh = (opt.shift || 0) * MM / 720 * 1.2;
   if (f || sh) { const r = Math.max(1, f, Math.ceil(Math.abs(sh))); a = boxBlur(boxBlur(a, mw, mh, r), mw, mh, r);
     const off = sh / (2 * r + 1); for (let i = 0; i < a.length; i++) { let v = a[i] + off; if (!f) v = (v - .5) * 3 + .5; a[i] = clamp(v); } }

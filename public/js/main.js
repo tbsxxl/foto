@@ -7,7 +7,7 @@ import { newImageLayer, newTextLayer, newShapeLayer, coverSlide, coverAll, compu
 import { isDoodle, doodleSVG, tapeType, TAPE_KINDS, TAPE_PATTERNS, TAPE_COLORS, CLIP_COLORS, BINDER_COLORS } from './props.js';
 import { TEMPLATES, TPL_CATS, tplSVG, tplDef, applyTemplate, layout, relink, shufflePhotos, releaseTemplate } from './templates.js';
 import * as store from './store.js';
-import { cutHooks, maskToPNG } from './process.js';
+import { cutHooks, maskToPNG, cleanMask } from './process.js';
 
 const PREVIEW_PX = 1200; // Vorschau-Auflösung (Export rechnet mit voller Auflösung)
 
@@ -322,7 +322,7 @@ async function runSegment(l, u, v, mode) {
     const m = await S.segmentAt(img, u, v); let cov = 0; for (let i = 0; i < m.data.length; i += 7) cov += m.data[i] > .5; cov /= m.data.length / 7;
     if (cov < .002) { toast('Hier wurde nichts erkannt – tippe mitten aufs Motiv'); return; }
     if (!l.cut) l.cut = { on: true, strokes: [] }; l.cut.on = true; if (l.cut.refine == null) l.cut.refine = true;
-    l.cut.strokes.push({ m: mode, d: maskToPNG(m), p: [+u.toFixed(4), +v.toFixed(4)] });
+    l.cut.strokes.push({ m: mode, d: maskToPNG(cleanMask(m, u, v)), p: [+u.toFixed(4), +v.toFixed(4)] });
     haptic(); commit(); toast(mode === 'ai' ? 'Motiv erkannt · weitere Teile antippen oder mit „Radieren“ korrigieren' : 'Bereich entfernt');
   } catch (e) { console.error(e); toast('Die Erkennung ist auf diesem Gerät nicht verfügbar – nutze „Malen“.'); }
   finally { ui.segBusy = false; ui.segAt = null; requestRender(); }
@@ -1258,5 +1258,5 @@ if (document.fonts) {
   Promise.all(FONTS.map(f => document.fonts.load(`${f[2]} 40px "${f[0]}"`))).catch(() => {}).then(() => { flags.fontsTick++; requestRender(); });
 }
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').then(reg => reg.addEventListener('updatefound', () => { const w = reg.installing; w && w.addEventListener('statechange', () => { if (w.state === 'activated' && navigator.serviceWorker.controller) toast('Neue Version von Streifzug ist da', 'Neu laden', () => { saveNow(); setTimeout(() => location.reload(), 300); }); }); })).catch(() => {});
-window.__streifzug = { openTab: k => { ui.tab[mode() === 'image' ? 'image' : mode()] = k; renderUI(); }, state, ui, view, sources, cache, action, applyTemplate, layout, fit, selectLayer, commit, render, addFiles, saveNow, openProject,
+window.__streifzug = { openTab: k => { ui.tab[mode() === 'image' ? 'image' : mode()] = k; renderUI(); }, state, ui, view, sources, cache, action, applyTemplate, layout, fit, selectLayer, commit, render, runSegment, addFiles, saveNow, openProject,
   snapshot: (h = 360) => { const { W, H } = dims(), T = W * state.slides, c = mk(T * h / H, h), x = c.getContext('2d'); x.scale(h / H, h / H); drawScene(x, { clean: true }); return c.toDataURL('image/jpeg', .85); } };

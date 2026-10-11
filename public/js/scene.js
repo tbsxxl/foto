@@ -90,6 +90,8 @@ function drawMasked(c, l, bx, img, sx, sy, sw, sh, tag = 'i') {
   if (framed || (!soft && (!l.shape || l.shape === 'rect'))) { c.drawImage(img, sx, sy, sw, sh, -w / 2, -h / 2 + iy, w, h); return; }
   const m = c.getTransform(); let q = Math.hypot(m.a, m.b) || 1; q = q > 1.5 ? Math.round(q * 4) / 4 : Math.max(.05, Math.round(q * 40) / 40);
   q = Math.min(q, 4096 / Math.max(w, h)); const W2 = Math.ceil(w * q) + 2, H2 = Math.ceil(h * q) + 2;
+  // iOS: Canvas-Speicher ist knapp – sehr große Flächen (starkes Reinzoomen) lieber direkt mit Clip zeichnen
+  if (W2 * H2 > 3.5e6) { c.save(); imageClip(c, l, bx); c.clip(); c.drawImage(img, sx, sy, sw, sh, -w / 2, -h / 2 + iy, w, h); c.restore(); return; }
   const key = [imgId(img), sx | 0, sy | 0, sw | 0, sh | 0, w.toFixed(1), h.toFixed(1), iy.toFixed(1), q, l.shape, l.radius, l.edge, l.edgeSides, l.slot ?? l.id].join('|'), ck = l.id + tag;
   let e = maskCache.get(ck);
   if (!e || e.key !== key) {
@@ -97,7 +99,8 @@ function drawMasked(c, l, bx, img, sx, sy, sw, sh, tag = 'i') {
     x.setTransform(1, 0, 0, 1, 0, 0); x.globalCompositeOperation = 'source-over'; x.clearRect(0, 0, W2, H2); x.imageSmoothingQuality = 'high';
     x.drawImage(img, sx, sy, sw, sh, 1, 1, w * q, h * q);
     x.globalCompositeOperation = 'destination-in'; x.setTransform(q, 0, 0, q, w * q / 2 + 1, h * q / 2 - iy * q + 1); imageClip(x, l, bx); x.fill();
-    e = { key, cv: o }; maskCache.delete(ck); maskCache.set(ck, e); if (maskCache.size > 48) maskCache.delete(maskCache.keys().next().value);
+    e = { key, cv: o }; maskCache.delete(ck); maskCache.set(ck, e);
+    while (maskCache.size > 14) { const k0 = maskCache.keys().next().value, old = maskCache.get(k0); maskCache.delete(k0); if (old.cv !== o) { old.cv.width = old.cv.height = 0; } } // Speicher sofort freigeben (Safari)
   }
   c.drawImage(e.cv, -w / 2 - 1 / q, -h / 2 + iy - 1 / q, W2 / q, H2 / q);
 }
