@@ -565,3 +565,115 @@ input[type=range]:active::-webkit-slider-thumb{transform:scale(1.1)}
 .var[aria-pressed="true"] canvas.real{outline-color:var(--accent)}
 
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* =====================================================================
+   Liquid Glass (iOS 26+): schwebende Glas-Kapseln, große konzentrische Ecken
+   ===================================================================== */
+:root{
+  --glass:rgba(58,58,62,.42); --glass-strong:rgba(44,44,48,.72);
+  --glass-fx:blur(22px) saturate(190%) brightness(1.08);
+  --glass-edge:inset 0 .5px 0 rgba(255,255,255,.38),inset 0 -.5px 0 rgba(255,255,255,.1),inset 0 0 0 .5px rgba(255,255,255,.12);
+  --glass-drop:0 12px 32px -10px rgba(0,0,0,.6),0 2px 6px -2px rgba(0,0,0,.3);
+  --glass-hi:linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,.03) 45%,rgba(255,255,255,0) 60%,rgba(255,255,255,.05));
+  --tint:rgba(255,255,255,.1); --tint-2:rgba(255,255,255,.16);
+  --r-card:30px; --r-group:22px;
+}
+html,body,#app,.workspace,.stage{background:var(--stage)}
+.glassy{background:var(--glass-hi),var(--glass);-webkit-backdrop-filter:var(--glass-fx);backdrop-filter:var(--glass-fx);box-shadow:var(--glass-edge),var(--glass-drop)}
+
+/* Kopfzeile: keine Leiste mehr, nur schwebende Glas-Kapseln */
+.top{background:transparent;padding:6px 12px 8px;position:relative;z-index:5}
+.glass-group{display:flex;align-items:center;gap:0;padding:2px;border-radius:999px;background:var(--glass-hi),var(--glass);-webkit-backdrop-filter:var(--glass-fx);backdrop-filter:var(--glass-fx);box-shadow:var(--glass-edge),var(--glass-drop)}
+.glass-group .icon-btn,.glass-group #previewBtn{width:40px;height:40px;border-radius:999px;background:none}
+.top-actions{gap:8px}
+#exportBtn{height:44px;padding:0 16px 0 14px;border-radius:999px;margin:0;color:#1d1800;font-size:16px;
+  background:linear-gradient(180deg,rgba(255,255,255,.45),rgba(255,255,255,0) 55%),var(--accent);
+  box-shadow:inset 0 .5px 0 rgba(255,255,255,.7),inset 0 -1px 0 rgba(0,0,0,.12),0 10px 26px -10px rgba(255,200,0,.55)}
+@media (max-width:420px){ .top{padding:6px 8px 8px} .glass-group .icon-btn,.glass-group #previewBtn{width:38px} #exportBtn{padding:0 13px 0 11px} }
+
+/* Werkzeugfeld: schwebende Glas-Karte, darunter schwebende Tab-Kapsel */
+.dock{background:transparent;box-shadow:none;border-radius:0;padding:0 8px;position:relative;display:flex;flex-direction:column}
+.card{flex:1;min-height:0;display:flex;flex-direction:column;border-radius:var(--r-card);overflow:hidden;
+  background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,0) 90px),rgba(30,30,33,.94);box-shadow:var(--glass-edge),0 -8px 30px -12px rgba(0,0,0,.7)}
+.panel{padding:6px 16px calc(96px + var(--tabs-gap,0px));scroll-padding-bottom:96px}
+.panel-head{padding:4px 18px 2px;min-height:48px}
+.panel-head .title{font-size:22px;font-weight:700;letter-spacing:-.03em}
+.panel-head .icon-btn{width:40px;height:40px;background:var(--tint);box-shadow:inset 0 .5px 0 rgba(255,255,255,.2)}
+.panel-head .icon-btn svg{width:20px;height:20px}
+.grab{height:18px;margin-bottom:-6px}
+.grab i{width:38px;height:5px;background:rgba(255,255,255,.28)}
+
+.tabs{position:absolute;left:16px;right:16px;bottom:calc(10px + var(--tabs-gap,0px));margin:0 auto;width:max-content;max-width:calc(100% - 32px);
+  border:0;border-radius:999px;padding:4px;gap:0;z-index:4;
+  background:var(--glass-hi),rgba(50,50,54,.62);-webkit-backdrop-filter:blur(24px) saturate(200%) brightness(1.1);backdrop-filter:blur(24px) saturate(200%) brightness(1.1);
+  box-shadow:var(--glass-edge),0 16px 36px -10px rgba(0,0,0,.75),0 2px 8px -2px rgba(0,0,0,.4)}
+.tabs.more{-webkit-mask-image:none;mask-image:none}
+.tab{flex:0 0 auto;min-width:56px;min-height:54px;border-radius:999px;padding:6px 8px 5px;gap:2px;font-size:10.5px;font-weight:600;color:rgba(255,255,255,.88)}
+.tab svg,.tab.add svg{width:24px;height:24px;color:rgba(255,255,255,.88)}
+.tab.add{color:rgba(255,255,255,.88)}
+.tab[aria-selected="true"]{background:rgba(255,255,255,.14);color:var(--accent);box-shadow:inset 0 .5px 0 rgba(255,255,255,.22)}
+.tab[aria-selected="true"] svg{color:var(--accent)}
+.tab:active{transform:scale(.92);opacity:1;background:rgba(255,255,255,.1)}
+/* unten: Platz für den Home-Balken – bei der verkürzten Home-Bildschirm-App liegt er schon im toten Streifen */
+:root{--tabs-gap:max(0px,calc(env(safe-area-inset-bottom,0px) - 14px))}
+html.pwa-short{--tabs-gap:0px}
+html.pwa-short .tabs{padding-bottom:4px}
+.dock{padding-bottom:0}
+@media (min-width:900px){ .dock{padding:8px} .tabs{position:absolute} }
+
+/* Gruppen, Knöpfe, Chips: weicher, runder */
+.group{border-radius:var(--r-group);background:rgba(255,255,255,.055);padding:14px 16px;box-shadow:inset 0 .5px 0 rgba(255,255,255,.06)}
+.tpl,.tpl-cur,.layer-row{border-radius:var(--r-group);background:rgba(255,255,255,.055)}
+.layer-row{padding:4px 6px 4px 8px}
+.layer-ico{border-radius:10px;background:var(--tint)}
+.btn.ghost,.chip,.stepper,input.name,textarea.txt,.paste-pad,.icon-btn.fav,.align-row .icon-btn,.fontchip,.group .el,.group .emo,.el,.emo{background:var(--tint);box-shadow:inset 0 .5px 0 rgba(255,255,255,.12)}
+.btn.small{height:36px;padding:0 15px}
+.chip{min-height:36px}
+.chip[aria-pressed="true"]{background:#fff;color:#000;box-shadow:0 4px 14px -6px rgba(255,255,255,.35)}
+.btn.primary{background:linear-gradient(180deg,rgba(255,255,255,.4),rgba(255,255,255,0) 55%),var(--accent);box-shadow:inset 0 .5px 0 rgba(255,255,255,.6)}
+input.name,textarea.txt{border-radius:14px}
+input.name{height:42px}
+.stepper{border-radius:999px}
+.el,.emo,.fontchip{border-radius:16px}
+.align-row .icon-btn{border-radius:14px}
+
+/* Segmente als Kapsel mit gläsernem Schieber */
+.seg{border-radius:999px;padding:3px;background:rgba(255,255,255,.08)}
+.seg button{border-radius:999px;padding:8px 12px}
+.seg button[aria-selected="true"]{background:linear-gradient(180deg,rgba(255,255,255,.22),rgba(255,255,255,.08));box-shadow:inset 0 .5px 0 rgba(255,255,255,.4),0 4px 12px -4px rgba(0,0,0,.5)}
+
+/* Regler: Kapsel-Griff, beim Ziehen wird er zur Glas-Linse */
+input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:3px}
+input[type=range]::-webkit-slider-thumb{width:38px;height:24px;border-radius:12px;margin-top:-9px;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.25),0 0 0 .5px rgba(0,0,0,.05);transition:transform .3s var(--spring),background-color .2s}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(1.35);background:rgba(255,255,255,.28);box-shadow:inset 0 .5px 0 rgba(255,255,255,.9),inset 0 0 0 1px rgba(255,255,255,.55),0 6px 18px rgba(0,0,0,.35)}
+input[type=range]::-moz-range-thumb{width:38px;height:24px;border-radius:12px;background:#fff}
+
+/* Schalter: breiter, Kapsel-Knopf */
+.switch{width:62px;height:28px;border-radius:999px}
+.switch::after{top:2px;left:2px;width:38px;height:24px;border-radius:999px}
+.switch[aria-checked="true"]::after{transform:translateX(20px)}
+.switch:active::after{transform:scale(1.15);background:rgba(255,255,255,.75)}
+.switch[aria-checked="true"]:active::after{transform:translateX(20px) scale(1.15)}
+
+/* Schwebendes auf der Bühne */
+.slidenav,.quick,.stage-hint,.hud,.toast{background:var(--glass-hi),var(--glass);-webkit-backdrop-filter:var(--glass-fx);backdrop-filter:var(--glass-fx);box-shadow:var(--glass-edge),var(--glass-drop)}
+.slidenav{padding:4px}
+.slidenav button{height:32px;min-width:34px}
+.slidenav button[aria-current="true"]{background:#fff;color:#000;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.quick{padding:2px}
+.qbtn{width:44px;height:44px;color:#fff}
+.toast{background:var(--glass-hi),var(--glass-strong)}
+
+/* Menüs und Sheets */
+.ctx-menu{border-radius:26px;background:var(--glass-hi),rgba(46,46,50,.72);-webkit-backdrop-filter:blur(30px) saturate(200%);backdrop-filter:blur(30px) saturate(200%);box-shadow:var(--glass-edge),0 30px 70px -14px rgba(0,0,0,.8);padding:6px 0}
+.ctx-item{border-top:0;min-height:46px;margin:0 6px;width:calc(100% - 12px);border-radius:14px;padding:0 14px}
+.ctx-sep{height:.5px;margin:6px 16px;background:rgba(255,255,255,.14)}
+.sheet{top:calc(env(safe-area-inset-top,0px) + 10px);left:6px;right:6px;border-radius:34px 34px 0 0;background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,0) 120px),#1c1c1f;box-shadow:var(--glass-edge),0 0 0 100vmax rgba(0,0,0,.5)}
+.sheet-head{border-bottom:0;padding:12px 10px 6px 20px}
+.sheet-head h2{font-size:22px;font-weight:700}
+.sheet-head .btn.ghost{background:var(--tint);color:var(--fg);font-size:15px;padding:0 14px;height:36px}
+.help section,.proj,.ig{border-radius:var(--r-group);background:rgba(255,255,255,.055)}
+.empty{border-radius:32px;background:var(--glass-hi),var(--glass-strong)}
+.wl-go{border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.4),rgba(255,255,255,0) 55%),var(--accent);box-shadow:inset 0 .5px 0 rgba(255,255,255,.6),0 12px 30px -10px rgba(255,200,0,.5)}
+.wl-mark{border-radius:22px;box-shadow:inset 0 1px 0 rgba(255,255,255,.6),0 12px 30px -10px rgba(255,190,30,.55)}
+.progress{font-family:var(--ui);font-size:14px}

@@ -1398,7 +1398,7 @@ document.addEventListener('keydown', e => {
 });
 let keyT;
 /* ---------- Kopieren & Einfügen ---------- */
-const VERSION = 33;
+const VERSION = 34;
 const CLIP_MARK = 'streifzug-ebene:';
 function copyLayer(l) {
   ui.layerClip = clone(l); LS.set('layerClip', ui.layerClip); haptic();
