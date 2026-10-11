@@ -453,7 +453,7 @@ $('#camIn').addEventListener('change', e => { const f = [...e.target.files]; e.t
 
 function renderHead() {
   const m = mode(), l = selLayer();
-  if (m === 'none') { head.innerHTML = `<span class="hint">${state.layers.length ? 'Tippe ein Foto, einen Text oder ein Element an.' : 'Noch leer. Starte mit „+ Foto“ oder einer Vorlage.'}</span>`; return; }
+  if (m === 'none') { head.innerHTML = `<span class="hint">${state.layers.length ? 'Tippe ein Foto, einen Text oder ein Element an.' : 'Noch leer. Starte mit „+ Foto“ oder einer Vorlage.'}</span><button class="btn ghost small" data-act="paste" title="Bild, Text oder kopierte Ebene einfügen">📋 Einfügen</button>`; return; }
   if (m === 'text' || m === 'shape' || m === 'slot') { head.innerHTML = `<span class="title">${m === 'text' ? 'Text' : m === 'slot' ? 'Leeres Feld' : 'Element'}</span><button class="btn primary small icon" data-act="done" aria-label="Fertig" title="Fertig"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg></button>`; return; }
   const n = state.layers.filter(x => x.type === 'image').indexOf(l) + 1;
   head.innerHTML = `<span class="title">Foto ${n}</span>
@@ -467,6 +467,7 @@ head.addEventListener('pointerdown', e => { if (e.target.closest('[data-act=befo
 head.addEventListener('click', e => {
   const a = e.target.closest('[data-act]')?.dataset.act, l = selLayer(); if (!a) return;
   if (a === 'done') selectLayer(null);
+  else if (a === 'paste') pasteAny();
   else if (a === 'auto' && l) { if (l.params.auto) { l.params.auto = null; l.params.brightness = 0; toast('Auto-Korrektur entfernt'); } else autoFix(l); commit(); }
   else if (a === 'reset' && l) { l.params = defParams(); toast('Bearbeitung zurückgesetzt'); commit(); }
 });
@@ -662,7 +663,8 @@ const EMOJI = ['☀️', '🌊', '❤️', '✨', '📍', '🌸', '🍂', '⭐',
 function panelElements() {
   const el = ([k, lb]) => `<button class="el" data-addshape="${k}"><svg viewBox="0 0 40 40" aria-hidden="true">${shapeIcon(k)}</svg><span>${lb}</span></button>`;
   const rec = LS.get('recentEl', []).map(k => k.startsWith('e:') ? `<button class="emo" data-emoji="${k.slice(2)}">${k.slice(2)}</button>` : SHAPES.find(x => x[0] === k) ? el(SHAPES.find(x => x[0] === k)) : '').join('');
-  return `${rec ? group('Zuletzt benutzt', `<div class="el-grid recent">${rec}</div>`) : ''}
+  return `${group('Zwischenablage', `<div class="row">${btn('pasteAny', '📋 Einfügen')}<span class="note">Bild oder Text aus anderen Apps${ui.layerClip ? ', oder die kopierte Ebene' : ''}</span></div>`)}
+  ${rec ? group('Zuletzt benutzt', `<div class="el-grid recent">${rec}</div>`) : ''}
   ${group('Kritzeleien', `<div class="el-grid">${SHAPES.filter(([k]) => isDoodle(k)).map(el).join('')}</div>`)}
   ${group('Formen & Sticker', `<div class="el-grid">${SHAPES.filter(([k]) => !isDoodle(k)).map(el).join('')}</div>`)}
   ${group('Emoji', `<div class="emoji-row">${EMOJI.map(e => `<button class="emo" data-emoji="${e}">${e}</button>`).join('')}</div>`)}
@@ -962,6 +964,8 @@ function action(a, l) {
     case 'toAll': { const i = clamp(Math.floor(l.x / W), 0, state.slides - 1), copies = [];
       for (let k = 0; k < state.slides; k++) if (k !== i) { const c = unlinked(clone(l)); c.id = newId(); c.x += (k - i) * W; copies.push(c); }
       state.layers.splice(state.layers.indexOf(l) + 1, 0, ...copies); commit(); toast(`Auf ${copies.length} weitere Slide${copies.length === 1 ? '' : 's'} kopiert`, 'Rückgängig', undo); return; }
+    case 'copyLayer': copyLayer(l); return;
+    case 'pasteAny': pasteAny(); return;
     case 'enterCrop': enterCrop(true); return;
     case 'tplReroll': state.tpl.seed = (state.tpl.seed || 0) + 1; layout(false); commit(); toast('Seiten neu gewürfelt'); return;
     case 'tplFav': { const f = LS.get('tplFav', []), id = state.tpl.kind, on = f.includes(id); LS.set('tplFav', on ? f.filter(x => x !== id) : [id, ...f]); toast(on ? 'Aus Favoriten entfernt' : 'Als Favorit gemerkt'); renderPanel(); return; }
@@ -1245,13 +1249,52 @@ document.addEventListener('keydown', e => {
   const l = selLayer();
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
   else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd' && l) { e.preventDefault(); action('dup', l); }
-  else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c' && l) { ui.layerClip = clone(l); toast('Ebene kopiert'); }
-  else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'v' && ui.layerClip) { e.preventDefault(); const { W } = dims(), c = unlinked(clone(ui.layerClip)); c.id = newId(); c.x = (visibleSlide() + .5) * W + (c.x % W) - W / 2; c.y += 30; state.layers.push(c); ui.sel = c.id; commit(); toast('Eingefügt'); }
+  else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'c' && l) { copyLayer(l); }
   else if ((e.key === 'Delete' || e.key === 'Backspace') && l) { e.preventDefault(); action('del', l); }
   else if (l && !l.locked && e.key.startsWith('Arrow')) { e.preventDefault(); const s = e.shiftKey ? 50 : 5; if (e.key === 'ArrowLeft') l.x -= s; if (e.key === 'ArrowRight') l.x += s; if (e.key === 'ArrowUp') l.y -= s; if (e.key === 'ArrowDown') l.y += s; requestRender(); clearTimeout(keyT); keyT = setTimeout(pushHistory, 400); }
   else if (e.key === 'Escape') { for (const s of ['#exportSheet', '#previewSheet', '#projSheet', '#helpSheet']) if (!$(s).hidden) { $(s).hidden = true; return; } if (ui.pick) { ui.pick = false; renderPanel(); } else selectLayer(null); }
 });
 let keyT;
+/* ---------- Kopieren & Einfügen ---------- */
+const CLIP_MARK = 'streifzug-ebene:';
+function copyLayer(l) {
+  ui.layerClip = clone(l); haptic();
+  const txt = l.type === 'text' ? l.text : CLIP_MARK + l.id;
+  try { navigator.clipboard && navigator.clipboard.writeText(txt).catch(() => {}); } catch {}
+  toast(l.type === 'image' ? 'Foto kopiert' : l.type === 'text' ? 'Text kopiert' : 'Element kopiert', 'Einfügen', pasteLayer);
+}
+function pasteLayer() {
+  if (!ui.layerClip) return; const { W } = dims(), c = unlinked(clone(ui.layerClip)); c.id = newId(); c.locked = false; c.hidden = false;
+  const rel = ((ui.layerClip.x % W) + W) % W, slide = visibleSlide(); c.x = slide * W + rel;
+  if (state.layers.some(x => Math.abs(x.x - c.x) < 4 && Math.abs(x.y - c.y) < 4)) { c.x += 40; c.y += 40; } // nicht genau übereinander
+  state.layers.push(c); ui.sel = c.id; haptic(); commit(); toast('Eingefügt');
+}
+function pasteText(txt) {
+  txt = String(txt || '').replace(/\r/g, '').trim(); if (!txt) return false;
+  if (txt.startsWith(CLIP_MARK)) { if (ui.layerClip) { pasteLayer(); return true; } return false; }
+  if (ui.layerClip && ui.layerClip.type === 'text' && ui.layerClip.text === txt) { pasteLayer(); return true; }
+  const { W, H } = dims(), t = newTextLayer((visibleSlide() + .5) * W, H / 2, txt.slice(0, 600)); if (txt.length > 40) t.size = 60;
+  state.layers.push(t); ui.tab.text = 'text'; ui.sel = t.id; haptic(); commit(); toast('Text eingefügt'); return true;
+}
+/* Einfügen-Knopf: System-Zwischenablage lesen (Bild vor Text), sonst die zuletzt kopierte Ebene */
+async function pasteAny() {
+  try {
+    if (navigator.clipboard && navigator.clipboard.read) {
+      const items = await navigator.clipboard.read();
+      for (const it of items) { const t = it.types.find(x => x.startsWith('image/')); if (t) { const blob = await it.getType(t); await addFiles([new File([blob], 'eingefuegt.' + (t.split('/')[1] || 'png'), { type: t })]); return; } }
+      for (const it of items) if (it.types.includes('text/plain')) { const txt = await (await it.getType('text/plain')).text(); if (pasteText(txt)) return; }
+    } else if (navigator.clipboard && navigator.clipboard.readText) { if (pasteText(await navigator.clipboard.readText())) return; }
+  } catch (e) { if (!ui.layerClip) { toast('Einfügen wurde nicht erlaubt – im Menü „Einsetzen“ antippen'); return; } }
+  if (ui.layerClip) { pasteLayer(); return; }
+  toast('Die Zwischenablage ist leer – kopiere ein Bild, einen Text oder ein Element');
+}
+document.addEventListener('paste', e => {
+  if (e.target.matches && e.target.matches('input,textarea')) return; const dt = e.clipboardData; if (!dt) return;
+  const files = [...dt.files].filter(f => f.type.startsWith('image/') || /\.(heic|heif|jpe?g|png|webp|avif)$/i.test(f.name));
+  if (files.length) { e.preventDefault(); addFiles(files); return; }
+  const txt = dt.getData('text/plain'); if (txt) { e.preventDefault(); if (!pasteText(txt) && ui.layerClip) pasteLayer(); return; }
+  if (ui.layerClip) { e.preventDefault(); pasteLayer(); }
+});
 stage.addEventListener('dragover', e => e.preventDefault());
 stage.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files); });
 
