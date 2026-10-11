@@ -35,7 +35,7 @@ export function cropRect(iw, ih, l) {
 }
 export const FRAMES = new Set(['polaroid', 'instax', 'film', 'filmv', 'dia']);
 export function boxOf(l) {
-  if (l.type === 'text') { const m = textMetrics(l); return { w: m.w, h: m.h, ow: m.w, oh: m.h, iy: 0, bb: 0 }; }
+  if (l.type === 'text') { const m = textMetrics(l), sx = l.sx || 1, sy = l.sy || 1; return { w: m.w * sx, h: m.h * sy, ow: m.w * sx, oh: m.h * sy, iy: 0, bb: 0 }; }
   if (l.type === 'shape') { const hh = l.kind === 'line' ? Math.max(l.h, 30) : l.h; return { w: l.w, h: hh, ow: l.w, oh: hh, iy: 0, bb: 0 }; }
   const w = l.w, h = w / cropAspect(l), b = l.border || 0;
   switch (l.shape) {
@@ -434,6 +434,7 @@ function drawLetters(c, l, m) {
 }
 function drawTextLayer(c, l) {
   const m = textMetrics(l);
+  if ((l.sx && l.sx !== 1) || (l.sy && l.sy !== 1)) c.scale(l.sx || 1, l.sy || 1); // gestaucht / gestreckt
   if (LETTER_BG.has(l.bg)) { drawLetters(c, l, m); return; }
   if (l.bg === 'pin') { // Orts-Pille mit Stecknadel
     c.save(); c.shadowColor = 'rgba(0,0,0,.18)'; c.shadowBlur = l.size * .3; c.shadowOffsetY = l.size * .06; c.fillStyle = l.bgColor && (l.bgSet || l.bgColor !== '#111111') ? l.bgColor : '#ffffff';

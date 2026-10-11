@@ -53,6 +53,8 @@ function render() {
     const b = boxOf(l), tool = activeTool();
     ctx.save(); ctx.translate(l.x, l.y); ctx.rotate(l.rot * Math.PI / 180);
     ctx.lineWidth = 2 / s; ctx.strokeStyle = tool ? 'rgba(255,255,255,.35)' : COL.accent; ctx.strokeRect(-b.ow / 2, -b.oh / 2, b.ow, b.oh);
+    if (!tool && !l.locked && edgeOK(l)) { const pw = 5 / s, pl = 24 / s; ctx.fillStyle = '#ffffff'; ctx.strokeStyle = COL.accent; ctx.lineWidth = 1.5 / s;
+      for (const [cx, cy, vert] of [[-b.ow / 2, 0, 1], [b.ow / 2, 0, 1], [0, -b.oh / 2, 0], [0, b.oh / 2, 0]]) { const w0 = vert ? pw * 2 : pl, h0 = vert ? pl : pw * 2; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(cx - w0 / 2, cy - h0 / 2, w0, h0, pw) : ctx.rect(cx - w0 / 2, cy - h0 / 2, w0, h0); ctx.fill(); ctx.stroke(); } }
     if (!tool && !l.locked) { const r = 11 / s; ctx.fillStyle = COL.accent; ctx.beginPath(); ctx.arc(b.ow / 2, -b.oh / 2, r, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = '#1d1704'; ctx.lineWidth = 1.8 / s; ctx.beginPath(); ctx.arc(b.ow / 2, -b.oh / 2, r * .48, -.4, Math.PI * 1.25); ctx.stroke(); }
     if (tool) drawToolOverlay(l, b);
@@ -159,6 +161,13 @@ function drawToolOverlay(l) {
 /* ---------- Gesten ---------- */
 const ptrs = new Map(); let gest = null, lastTap = { id: null, t: 0 };
 function hitTest(p) { for (let i = state.layers.length - 1; i >= 0; i--) { const l = state.layers[i]; if (l.hidden || l.locked) continue; const b = boxOf(l), q = toLocal(l, p); if (Math.abs(q.x) <= b.ow / 2 && Math.abs(q.y) <= b.oh / 2) return l; } return null; }
+const edgeOK = l => !(l.type === 'image' && (l.pane || !l.srcId)) && !(l.type === 'shape' && l.kind === 'line');
+function hitEdge(l, p) {
+  if (l.locked || !edgeOK(l)) return null; const b = boxOf(l), q = toLocal(l, p), r = 18 / view.s, along = (L) => Math.max(26 / view.s, L * .22);
+  if (Math.abs(Math.abs(q.x) - b.ow / 2) < r && Math.abs(q.y) < along(b.oh)) return q.x > 0 ? 'r' : 'l';
+  if (Math.abs(Math.abs(q.y) - b.oh / 2) < r && Math.abs(q.x) < along(b.ow)) return q.y > 0 ? 'b' : 't';
+  return null;
+}
 function hitHandle(l, p) { if (l.locked) return false; const b = boxOf(l), q = toLocal(l, p), r = 24 / view.s; return Math.hypot(q.x - b.ow / 2, q.y + b.oh / 2) < r; }
 /* Vorlagen-Fotos lassen sich auf ein anderes Feld ziehen und tauschen dort die Plätze */
 const swappable = l => l.type === 'image' && l.slot != null && !l.grp && !l.pane;
@@ -232,7 +241,11 @@ cv.addEventListener('pointerdown', e => {
   if (ptrs.size === 1) {
     const l = selLayer(), tool = activeTool();
     if (tool) { const g = startTool(tool, l, p); if (g) { gest = g; requestRender(); return; } }
-    if (l && !tool && hitHandle(l, p)) { gest = { mode: 'handle', l, d0: Math.hypot(p.x - l.x, p.y - l.y), a0: Math.atan2(p.y - l.y, p.x - l.x), size0: sizeOf(l), rot0: l.rot, moved: false }; }
+    let side = l && !tool ? hitEdge(l, p) : null;
+    if (side && hitHandle(l, p)) { const b0 = boxOf(l), q = toLocal(l, p), dc = Math.hypot(q.x - b0.ow / 2, q.y + b0.oh / 2), mid = { l: [-b0.ow / 2, 0], r: [b0.ow / 2, 0], t: [0, -b0.oh / 2], b: [0, b0.oh / 2] }[side];
+      if (Math.hypot(q.x - mid[0], q.y - mid[1]) >= dc) side = null; } // näher am Eck-Griff → skalieren/drehen
+    if (side) { const bx = boxOf(l); gest = { mode: 'edge', side, l, p0: p, x0: l.x, y0: l.y, ow0: bx.ow, oh0: bx.oh, w0: l.w, h0: l.type === 'image' ? l.w / cropAspect(l) : l.h, sx0: l.sx || 1, sy0: l.sy || 1, moved: false }; }
+    else if (l && !tool && hitHandle(l, p)) { gest = { mode: 'handle', l, d0: Math.hypot(p.x - l.x, p.y - l.y), a0: Math.atan2(p.y - l.y, p.x - l.x), size0: sizeOf(l), rot0: l.rot, moved: false }; }
     else {
       const hit = hitTest(p);
       if (hit && !(tool && tool !== 'crop' && hit !== l)) { if (ui.sel !== hit.id) { if (hit.type === 'image' && hit.srcId && (!l || l.type !== 'image' || tool === 'crop')) ui.tab.image = 'rahmen'; selectLayer(hit.id); } gest = { mode: 'move', l: hit, dx: p.x - hit.x, dy: p.y - hit.y, x0: hit.x, y0: hit.y, moved: false }; }
@@ -258,6 +271,14 @@ cv.addEventListener('pointermove', e => {
   const m = gest.mode;
   if (m === 'move') { if (gest.l.locked) return; const [nx, ny] = snapMove(gest.l, p.x - gest.dx, p.y - gest.dy); gest.l.x = nx; gest.l.y = ny;
     if (swappable(gest.l)) { const t = swapTarget(gest.l, p); gest.target = t; ui.dropId = t ? t.id : null; } }
+  else if (m === 'edge') { const g = gest, l = g.l, a = (l.rot || 0) * Math.PI / 180, ux = Math.cos(a), uy = Math.sin(a), dx = p.x - g.p0.x, dy = p.y - g.p0.y;
+    const horiz = g.side === 'l' || g.side === 'r', proj = horiz ? dx * ux + dy * uy : -dx * uy + dy * ux, sign = g.side === 'r' || g.side === 'b' ? 1 : -1;
+    const full = horiz ? g.ow0 : g.oh0, d = Math.max(-full + 30, sign * proj), shift = sign * d / 2;
+    l.x = g.x0 + (horiz ? ux : -uy) * shift; l.y = g.y0 + (horiz ? uy : ux) * shift;
+    if (l.type === 'text') { if (horiz) l.sx = clamp(g.sx0 * (full + d) / full, .2, 6); else l.sy = clamp(g.sy0 * (full + d) / full, .2, 6); }
+    else if (l.type === 'image') { const nw = horiz ? Math.max(40, g.w0 + d) : g.w0, nh = horiz ? g.h0 : Math.max(40, g.h0 + d); l.w = nw; l.crop.ratio = nw / nh; delete l.crop.box; }
+    else { if (horiz) l.w = Math.max(20, g.w0 + d); else l.h = Math.max(10, g.h0 + d); }
+  }
   else if (m === 'handle') { const l = gest.l, d = Math.hypot(p.x - l.x, p.y - l.y), a = Math.atan2(p.y - l.y, p.x - l.x);
     setSize(l, gest.size0 * d / gest.d0); let r = gest.rot0 + (a - gest.a0) * 180 / Math.PI; r = ((r + 540) % 360) - 180;
     for (const t of [-180, -90, 0, 90, 180]) if (Math.abs(r - t) < 3) r = t; l.rot = r; }
@@ -384,7 +405,7 @@ function updateTop() {
     : tool === 'focus' ? 'Ziehen verschiebt den Schärfebereich' : tool === 'crop' ? 'Foto im Rahmen verschieben · zwei Finger zoomen · Doppeltipp: fertig'
     : tool === 'wb' ? 'Tippe auf etwas, das weiß oder grau sein sollte'
     : l && l.type === 'image' && !l.srcId ? 'Tippe auf das „+“, um ein Foto einzusetzen'
-    : state.layers.length ? (l ? (l.locked ? 'Ebene ist gesperrt – entsperren unter „Ebenen“' : l.type === 'image' && l.srcId ? 'Doppeltipp: Ausschnitt & Zoom · Ziehen verschiebt · Eck-Griff skaliert und dreht' : 'Ziehen verschiebt · Eck-Griff skaliert und dreht · zwei Finger: Zoom') : 'Antippen zum Bearbeiten · leere Fläche ziehen zum Scrollen') : 'Füge Fotos hinzu – sie dürfen über die Slide-Grenzen ragen.';
+    : state.layers.length ? (l ? (l.locked ? 'Ebene ist gesperrt – entsperren unter „Ebenen“' : l.type === 'image' && l.srcId ? 'Doppeltipp: Ausschnitt & Zoom · Seiten ziehen: Rahmen ändern · Eck-Griff: Größe & Drehung' : 'Ziehen verschiebt · Eck-Griff skaliert und dreht · zwei Finger: Zoom') : 'Antippen zum Bearbeiten · leere Fläche ziehen zum Scrollen') : 'Füge Fotos hinzu – sie dürfen über die Slide-Grenzen ragen.';
   if (hintEl.textContent !== prevHint) { hintEl.classList.remove('fade'); clearTimeout(updateTop.t); updateTop.t = setTimeout(() => hintEl.classList.add('fade'), 5000); }
 }
 function renderUI() { renderTabs(); renderHead(); renderPanel(); updateTop(); requestRender(); }
@@ -808,7 +829,7 @@ function panelText(l) {
 }
 const PIN_COLORS = ['#8a4bd8', '#e5484d', '#ff7eb6', '#ff9a2e', '#f2c14e', '#3fa36b', '#3f7fe0', '#111111', '#ffffff'];
 function panelTextStyle(l) {
-  return group('Farbe', swatches('text', TEXT_COLORS, l.color)) + group('', slider('l.size', 'Größe', 16, 400, 1, 'px', 110) + slider('l.rot', 'Drehung', -180, 180, .5, 'deg') + slider('l.spacing', 'Laufweite', -10, 60, 1, 'n') + slider('l.lineH', 'Zeilenabstand', .8, 2, .02, 'lh', 1.16) + slider('l.curve', 'Bogen', -100, 100, 1, 'signed', 0) + (l.curve && l.bg !== 'none' ? '<span class="note">Bogentext gibt es nur ohne Hinterlegung.</span>' : ''))
+  return group('Farbe', swatches('text', TEXT_COLORS, l.color)) + group('', slider('l.size', 'Größe', 16, 400, 1, 'px', 110) + slider('l.rot', 'Drehung', -180, 180, .5, 'deg') + slider('l.spacing', 'Laufweite', -10, 60, 1, 'n') + slider('l.lineH', 'Zeilenabstand', .8, 2, .02, 'lh', 1.16) + slider('l.sx', 'Breite (stauchen / strecken)', 20, 300, 1, 'pct', 100, 100) + slider('l.sy', 'Höhe (stauchen / strecken)', 20, 300, 1, 'pct', 100, 100) + slider('l.curve', 'Bogen', -100, 100, 1, 'signed', 0) + (l.curve && l.bg !== 'none' ? '<span class="note">Bogentext gibt es nur ohne Hinterlegung.</span>' : ''))
   + group('Ausrichtung', `<div class="chips">${[['left', 'Links'], ['center', 'Mitte'], ['right', 'Rechts']].map(([k, lb]) => chip(`data-align="${k}"`, lb, l.align === k)).join('')}</div>`)
   + group('Hinterlegung', `<div class="chips">${[['none', 'Keine'], ['solid', 'Fläche'], ['soft', 'Halbtransparent'], ['band', 'Zeilenband'], ['beads', 'Perlen'], ['ransom', 'Ausschnitte'], ['pin', 'Orts-Pille']].map(([k, lb]) => chip(`data-tbg="${k}"`, lb, l.bg === k)).join('')}</div>
     ${l.bg === 'pin' ? `<span class="sec-label">Pille</span>${swatches('textbg', TEXT_COLORS, l.bgColor)}<span class="sec-label">Stecknadel</span>${swatches('pin', PIN_COLORS, l.pinColor || '#8a4bd8')}` : l.bg !== 'none' ? swatches('textbg', TEXT_COLORS, l.bgColor) : ''}`)
