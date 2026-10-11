@@ -945,7 +945,7 @@ function action(a, l) {
     case 'clear': if (!ui.confirmClear) { ui.confirmClear = true; renderPanel(); return; } newProject(); return;
     case 'sample': loadSample(); return;
     case 'projects': openProjects(); return;
-    case 'help': $('#helpSheet').hidden = false; return;
+    case 'help': openHelp(); return;
     case 'slideLeft': { const i = visibleSlide(); if (shiftSlide(i, -1)) { commit(); view.ox += W * view.s; clampView(); } return; }
     case 'slideRight': { const i = visibleSlide(); if (shiftSlide(i, 1)) { commit(); view.ox -= W * view.s; clampView(); } return; }
     case 'slideDup': { if (state.slides >= 20) { toast('Maximal 20 Slides'); return; } const i = visibleSlide(), inside = x => { const b = boxOf(x); return x.x - b.ow / 2 >= i * W - 1 && x.x + b.ow / 2 <= (i + 1) * W + 1; };
@@ -1164,7 +1164,13 @@ $('#projGrid').addEventListener('click', async e => {
 $('#projNew').addEventListener('click', () => { $('#projSheet').hidden = true; newProject(); });
 $('#closeProj').addEventListener('click', () => $('#projSheet').hidden = true);
 $('#projBtn').addEventListener('click', openProjects);
-$('#helpBtn').addEventListener('click', () => $('#helpSheet').hidden = false);
+$('#helpBtn').addEventListener('click', () => openHelp());
+function openHelp() {
+  $('#helpSheet').hidden = false;
+  // kleine Technik-Zeile, hilft bei Darstellungsproblemen auf dem iPhone
+  const pr = document.createElement('div'); pr.style.cssText = 'position:fixed;bottom:0;height:env(safe-area-inset-bottom,0px)'; document.body.append(pr);
+  const a = $('#app').getBoundingClientRect(); $('#diag').textContent = `Version ${VERSION} · Fenster ${innerWidth}×${innerHeight} · Bildschirm ${screen.width}×${screen.height} · App bis ${Math.round(a.bottom)} · unten frei ${pr.offsetHeight} · ${navigator.standalone ? 'Home-Bildschirm' : 'Browser'}${document.documentElement.classList.contains('pwa-full') ? ' · gestreckt' : ''}`; pr.remove();
+}
 $('#closeHelp').addEventListener('click', () => $('#helpSheet').hidden = true);
 
 /* ---------- Vorschau ---------- */
@@ -1256,9 +1262,10 @@ document.addEventListener('keydown', e => {
 });
 let keyT;
 /* ---------- Kopieren & Einfügen ---------- */
+const VERSION = 29;
 const CLIP_MARK = 'streifzug-ebene:';
 function copyLayer(l) {
-  ui.layerClip = clone(l); haptic();
+  ui.layerClip = clone(l); LS.set('layerClip', ui.layerClip); haptic();
   const txt = l.type === 'text' ? l.text : CLIP_MARK + l.id;
   try { navigator.clipboard && navigator.clipboard.writeText(txt).catch(() => {}); } catch {}
   toast(l.type === 'image' ? 'Foto kopiert' : l.type === 'text' ? 'Text kopiert' : 'Element kopiert', 'Einfügen', pasteLayer);
@@ -1271,22 +1278,35 @@ function pasteLayer() {
 }
 function pasteText(txt) {
   txt = String(txt || '').replace(/\r/g, '').trim(); if (!txt) return false;
-  if (txt.startsWith(CLIP_MARK)) { if (ui.layerClip) { pasteLayer(); return true; } return false; }
+  if (txt.startsWith(CLIP_MARK)) {
+    if (!ui.layerClip) { const src = state.layers.find(x => x.id === txt.slice(CLIP_MARK.length).trim()); if (src) ui.layerClip = clone(src); }
+    if (ui.layerClip) { pasteLayer(); return true; } return false;
+  }
   if (ui.layerClip && ui.layerClip.type === 'text' && ui.layerClip.text === txt) { pasteLayer(); return true; }
   const { W, H } = dims(), t = newTextLayer((visibleSlide() + .5) * W, H / 2, txt.slice(0, 600)); if (txt.length > 40) t.size = 60;
   state.layers.push(t); ui.tab.text = 'text'; ui.sel = t.id; haptic(); commit(); toast('Text eingefügt'); return true;
 }
 /* Einfügen-Knopf: System-Zwischenablage lesen (Bild vor Text), sonst die zuletzt kopierte Ebene */
 async function pasteAny() {
+  let denied = false, seen = false;
   try {
     if (navigator.clipboard && navigator.clipboard.read) {
-      const items = await navigator.clipboard.read();
-      for (const it of items) { const t = it.types.find(x => x.startsWith('image/')); if (t) { const blob = await it.getType(t); await addFiles([new File([blob], 'eingefuegt.' + (t.split('/')[1] || 'png'), { type: t })]); return; } }
-      for (const it of items) if (it.types.includes('text/plain')) { const txt = await (await it.getType('text/plain')).text(); if (pasteText(txt)) return; }
-    } else if (navigator.clipboard && navigator.clipboard.readText) { if (pasteText(await navigator.clipboard.readText())) return; }
-  } catch (e) { if (!ui.layerClip) { toast('Einfügen wurde nicht erlaubt – im Menü „Einsetzen“ antippen'); return; } }
+      const items = await navigator.clipboard.read(), texts = [];
+      for (const it of items) {
+        seen = seen || it.types.length > 0;
+        // Bilder zuerst – iOS liefert Fotos u. a. als image/png, image/jpeg oder image/heic
+        const t = it.types.find(x => x.startsWith('image/'));
+        if (t) { const blob = await it.getType(t); await addFiles([new File([blob], 'eingefuegt.' + (t.split('/')[1] || 'png'), { type: t })]); return; }
+        for (const ty of ['text/plain', 'text/uri-list']) if (it.types.includes(ty)) texts.push(await (await it.getType(ty)).text());
+        if (it.types.includes('text/html')) { const h = await (await it.getType('text/html')).text(), d = new DOMParser().parseFromString(h, 'text/html'); texts.push(d.body.textContent || ''); }
+      }
+      for (const txt of texts) if (pasteText(txt)) return;
+    } else if (navigator.clipboard && navigator.clipboard.readText) { const txt = await navigator.clipboard.readText(); seen = !!txt; if (pasteText(txt)) return; }
+  } catch (e) { denied = true; }
   if (ui.layerClip) { pasteLayer(); return; }
-  toast('Die Zwischenablage ist leer – kopiere ein Bild, einen Text oder ein Element');
+  toast(denied ? 'Einfügen wurde nicht erlaubt – nochmal tippen und „Einsetzen“ wählen'
+    : seen ? 'Das in der Zwischenablage kann hier nicht eingefügt werden – kopiere ein Bild, einen Text oder ein Element'
+    : 'Die Zwischenablage ist leer – kopiere ein Bild, einen Text oder ein Element');
 }
 document.addEventListener('paste', e => {
   if (e.target.matches && e.target.matches('input,textarea')) return; const dt = e.clipboardData; if (!dt) return;
@@ -1310,6 +1330,8 @@ function setAppHeight() {
 setAppHeight();
 addEventListener('resize', setAppHeight); addEventListener('orientationchange', () => setTimeout(setAppHeight, 300));
 window.visualViewport && visualViewport.addEventListener('resize', setAppHeight);
+
+if (!ui.layerClip) ui.layerClip = LS.get('layerClip', null); // kopierte Ebene übersteht Neustart der App
 
 /* ---------- Start ---------- */
 new ResizeObserver(resize).observe(stage);
