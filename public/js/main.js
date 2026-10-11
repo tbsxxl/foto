@@ -663,7 +663,7 @@ const EMOJI = ['☀️', '🌊', '❤️', '✨', '📍', '🌸', '🍂', '⭐',
 function panelElements() {
   const el = ([k, lb]) => `<button class="el" data-addshape="${k}"><svg viewBox="0 0 40 40" aria-hidden="true">${shapeIcon(k)}</svg><span>${lb}</span></button>`;
   const rec = LS.get('recentEl', []).map(k => k.startsWith('e:') ? `<button class="emo" data-emoji="${k.slice(2)}">${k.slice(2)}</button>` : SHAPES.find(x => x[0] === k) ? el(SHAPES.find(x => x[0] === k)) : '').join('');
-  return `${group('Zwischenablage', `<div class="row">${btn('pasteAny', '📋 Einfügen')}<span class="note">Bild oder Text aus anderen Apps${ui.layerClip ? ', oder die kopierte Ebene' : ''}</span></div>`)}
+  return `${group('Zwischenablage', `<div class="row">${btn('pasteAny', '📋 Einfügen')}<span class="note">Bild oder Text aus anderen Apps${ui.layerClip ? ', oder die kopierte Ebene' : ''}</span></div><div class="paste-pad" contenteditable="true" inputmode="none" enterkeyhint="done" aria-label="Hier lange drücken und Einsetzen wählen">Klappt’s nicht? <b>Hier lange drücken</b> → „Einsetzen“</div>`)}
   ${rec ? group('Zuletzt benutzt', `<div class="el-grid recent">${rec}</div>`) : ''}
   ${group('Kritzeleien', `<div class="el-grid">${SHAPES.filter(([k]) => isDoodle(k)).map(el).join('')}</div>`)}
   ${group('Formen & Sticker', `<div class="el-grid">${SHAPES.filter(([k]) => !isDoodle(k)).map(el).join('')}</div>`)}
@@ -1262,7 +1262,7 @@ document.addEventListener('keydown', e => {
 });
 let keyT;
 /* ---------- Kopieren & Einfügen ---------- */
-const VERSION = 29;
+const VERSION = 30;
 const CLIP_MARK = 'streifzug-ebene:';
 function copyLayer(l) {
   ui.layerClip = clone(l); LS.set('layerClip', ui.layerClip); haptic();
@@ -1279,7 +1279,7 @@ function pasteLayer() {
 function pasteText(txt) {
   txt = String(txt || '').replace(/\r/g, '').trim(); if (!txt) return false;
   if (txt.startsWith(CLIP_MARK)) {
-    if (!ui.layerClip) { const src = state.layers.find(x => x.id === txt.slice(CLIP_MARK.length).trim()); if (src) ui.layerClip = clone(src); }
+    if (!ui.layerClip) { const src = state.layers.find(x => String(x.id) === txt.slice(CLIP_MARK.length).trim()); if (src) ui.layerClip = clone(src); }
     if (ui.layerClip) { pasteLayer(); return true; } return false;
   }
   if (ui.layerClip && ui.layerClip.type === 'text' && ui.layerClip.text === txt) { pasteLayer(); return true; }
@@ -1310,11 +1310,15 @@ async function pasteAny() {
 }
 document.addEventListener('paste', e => {
   if (e.target.matches && e.target.matches('input,textarea')) return; const dt = e.clipboardData; if (!dt) return;
+  if (e.target.closest && e.target.closest('.paste-pad')) { e.preventDefault(); document.activeElement && document.activeElement.blur(); }
   const files = [...dt.files].filter(f => f.type.startsWith('image/') || /\.(heic|heif|jpe?g|png|webp|avif)$/i.test(f.name));
   if (files.length) { e.preventDefault(); addFiles(files); return; }
   const txt = dt.getData('text/plain'); if (txt) { e.preventDefault(); if (!pasteText(txt) && ui.layerClip) pasteLayer(); return; }
-  if (ui.layerClip) { e.preventDefault(); pasteLayer(); }
+  if (ui.layerClip) { e.preventDefault(); pasteLayer(); return; }
+  if (e.target.closest && e.target.closest('.paste-pad')) toast('Das in der Zwischenablage kann hier nicht eingefügt werden');
 });
+// Einfügefeld: nichts hineintippen lassen, nur „Einsetzen“
+document.addEventListener('beforeinput', e => { if (e.target.closest && e.target.closest('.paste-pad') && e.inputType !== 'insertFromPaste') e.preventDefault(); });
 stage.addEventListener('dragover', e => e.preventDefault());
 stage.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files); });
 
