@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>UI-Kit Demo</title>
+<link rel="stylesheet" href="ui-kit.css">
+<style>
+  body { height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
+  .stage { flex: 1; min-height: 120px; position: relative; display: grid; place-items: center; touch-action: none; }
+  .photo { width: min(70vw, 300px); aspect-ratio: 4/5; border-radius: 6px; background: linear-gradient(160deg, #3b2f6b, #e08a4a 60%, #2c4a3a); box-shadow: 0 20px 40px -20px #000; display: grid; place-items: center; font: 600 13px var(--ui); color: rgba(255,255,255,.75); text-align: center; padding: 20px; box-sizing: border-box; }
+  .pager { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 2px; padding: 4px; border-radius: 999px; }
+  .pager button { min-width: 34px; height: 32px; border-radius: 999px; font-weight: 600; font-size: 13px; color: var(--muted); }
+  .pager button[aria-current="true"] { background: #fff; color: #000; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+</style>
+</head>
+<body>
+<header class="k-top">
+  <span class="k-brand">Mein<i>App</i></span>
+  <div style="display:flex;gap:8px;align-items:center">
+    <div class="k-capsule glass">
+      <button class="k-icon" aria-label="Ordner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></button>
+      <button class="k-icon" aria-label="Rückgängig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
+      <button class="k-icon" aria-label="Wiederholen" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg></button>
+    </div>
+    <button class="k-btn primary hero" id="share"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7.5 7.5 12 3l4.5 4.5"/><path d="M8 11H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-2"/></svg>Teilen</button>
+  </div>
+</header>
+
+<main class="stage" id="stage">
+  <div class="photo" id="photo">Lange drücken<br>für das Kontextmenü</div>
+  <div class="k-hint glass" id="hint">Antippen zum Bearbeiten</div>
+  <nav class="pager glass"><button aria-current="true">1</button><button>2</button><button>3</button></nav>
+</main>
+
+<section class="k-dock" id="dock">
+  <div class="k-card">
+    <div class="k-grab" id="grab"><i></i></div>
+    <div class="k-head" id="head"><span class="title">Licht</span><button class="k-btn">Vorher</button><button class="k-btn primary" aria-label="Fertig">✓</button></div>
+    <div class="k-panel" id="panel">
+      <div class="k-tip" id="tip"><span>✨</span><span>Ziehe die Karte am Griff hoch oder runter – sie rastet federnd ein.</span><button id="tipok">OK</button></div>
+      <div class="k-seg" role="tablist"><button aria-selected="true">Schnell</button><button>Licht</button><button>Kurve</button></div>
+      <div class="k-group">
+        <div class="k-sl"><div class="k-sl-top"><label>Helligkeit</label><output>0</output></div><input type="range" class="k-slider" min="-100" max="100" value="0" data-def="0"></div>
+        <div class="k-sl"><div class="k-sl-top"><label>Kontrast</label><output>0</output></div><input type="range" class="k-slider" min="-100" max="100" value="0" data-def="0"></div>
+        <div class="k-sl"><div class="k-sl-top"><label>Körnung</label><output>0</output></div><input type="range" class="k-slider" min="0" max="100" value="0" data-def="0"></div>
+      </div>
+      <div class="k-group"><span class="k-label">Format</span>
+        <div class="k-chips"><button class="k-chip" aria-pressed="true">Hochformat</button><button class="k-chip">Quadrat</button><button class="k-chip">Story</button></div>
+      </div>
+      <div class="k-group">
+        <div class="k-toggle"><span>Datumsstempel</span><button class="k-switch" role="switch" aria-checked="false"></button></div>
+        <div class="k-toggle"><span>Schatten</span><button class="k-switch" role="switch" aria-checked="true"></button></div>
+      </div>
+      <div class="row"><button class="k-btn" id="toastBtn">Meldung zeigen</button><button class="k-btn" id="sheetBtn">Sheet öffnen</button><button class="k-btn danger">Löschen</button></div>
+      <p class="k-note">Alle Bausteine stammen aus <b>ui-kit.css</b>. Maße und Regeln stehen im Leitfaden.</p>
+    </div>
+  </div>
+  <nav class="k-tabs" role="tablist" id="tabs">
+    <button class="k-tab" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>Rahmen</button>
+    <button class="k-tab" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="9" r="5"/><circle cx="16" cy="9" r="5"/><circle cx="12" cy="15" r="5"/></svg>Looks</button>
+    <button class="k-tab" aria-selected="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>Licht</button>
+    <button class="k-tab" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/></svg>Farbe</button>
+    <button class="k-tab" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3c.5 3.5 2.5 5.5 6 6-3.5.5-5.5 2.5-6 6-.5-3.5-2.5-5.5-6-6 3.5-.5 5.5-2.5 6-6z"/></svg>KI</button>
+  </nav>
+</section>
+
+<script>
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+/* Auswahl in Tabs, Segmenten, Chips */
+const pick = (sel, attr) => $$(sel).forEach(b => b.addEventListener('click', () => { $$(sel).forEach(x => x.setAttribute(attr, 'false')); b.setAttribute(attr, 'true'); }));
+pick('.k-tab', 'aria-selected'); pick('.k-seg button', 'aria-selected'); pick('.k-chip', 'aria-pressed');
+$$('.k-tab').forEach(t => t.addEventListener('click', () => { $('#head .title').textContent = t.textContent.trim(); const p = $('#panel'); p.classList.remove('enter'); void p.offsetWidth; p.classList.add('enter'); }));
+$$('.k-switch').forEach(s => s.addEventListener('click', () => s.setAttribute('aria-checked', s.getAttribute('aria-checked') !== 'true')));
+/* Regler: Füllung ab Standardwert, Magnet am Standardwert, Doppeltipp setzt zurück */
+$$('.k-slider').forEach(inp => {
+  const paint = () => { const min = +inp.min, max = +inp.max, v = +inp.value, d = +inp.dataset.def, pv = (v - min) / (max - min) * 100, pd = (d - min) / (max - min) * 100;
+    inp.style.setProperty('--a', Math.min(pv, pd) + '%'); inp.style.setProperty('--b', Math.max(pv, pd) + '%'); const sl = inp.closest('.k-sl'); sl.querySelector('output').textContent = (v > 0 && d === 0 && min < 0 ? '+' : '') + v; sl.classList.toggle('changed', v !== d); };
+  inp.addEventListener('input', () => { const d = +inp.dataset.def, span = inp.max - inp.min; if (+inp.value !== d && Math.abs(inp.value - d) < span * .012) inp.value = d; paint(); });
+  inp.closest('.k-sl').querySelector('.k-sl-top').addEventListener('dblclick', () => { inp.value = inp.dataset.def; paint(); }); paint();
+});
+/* Werkzeug-Karte: Ziehen mit Gummiband, Schwung und Rasthöhen */
+const dock = $('#dock'), SN = [.3, .46, .7], MIN = .22, MAX = .82, setDock = (f, anim) => { dock.classList.toggle('anim', !!anim); dock.style.setProperty('--dock', (f * 100) + 'dvh'); };
+function drag(e) {
+  if (e.target.closest('button')) return; const el = e.currentTarget, y0 = e.clientY, h0 = dock.getBoundingClientRect().height, vh = innerHeight; let f = h0 / vh, last = [{ y: y0, t: performance.now() }];
+  el.setPointerCapture(e.pointerId);
+  const mv = ev => { const raw = (h0 + y0 - ev.clientY) / vh; f = raw > MAX ? MAX + (raw - MAX) * .25 : raw < MIN ? MIN - (MIN - raw) * .25 : raw; setDock(f); last.push({ y: ev.clientY, t: performance.now() }); if (last.length > 6) last.shift(); };
+  const up = () => { el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); const a = last[0], b = last.at(-1), v = (a.y - b.y) / Math.max(16, b.t - a.t) / vh * 1000, aim = Math.min(MAX, Math.max(MIN, f + v * .18));
+    setDock(SN.reduce((p, q) => Math.abs(q - aim) < Math.abs(p - aim) ? q : p), true); };
+  el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up);
+}
+$('#grab').addEventListener('pointerdown', drag); $('#head').addEventListener('pointerdown', drag);
+/* Hinweis blendet aus, Tipp einmalig */
+setTimeout(() => $('#hint').classList.add('fade'), 3200);
+$('#tipok').addEventListener('click', () => $('#tip').remove());
+/* Meldung mit Symbol und Aktion */
+function toast(msg, act) {
+  document.querySelector('.k-toast')?.remove(); const t = document.createElement('div'); t.className = 'k-toast'; t.setAttribute('role', 'status');
+  t.innerHTML = `<svg class="ico ok" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="currentColor"/><path d="m7.5 12.3 3 3 6-6.3" stroke="#000" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg><span>${msg}</span>${act ? `<button>${act}</button>` : ''}`;
+  document.body.append(t); setTimeout(() => t.remove(), act ? 4500 : 2400);
+}
+$('#toastBtn').addEventListener('click', () => toast('Fotos getauscht', 'Rückgängig'));
+$('#share').addEventListener('click', () => toast('Wird vorbereitet …'));
+/* Sheet */
+$('#sheetBtn').addEventListener('click', () => { const s = document.createElement('div'); s.className = 'k-sheet'; s.innerHTML = `<div class="k-sheet-head"><h2>Teilen</h2><button class="k-btn">Schließen</button></div><div class="k-panel"><div class="k-group"><span class="k-label">Inhalt</span><p class="k-note">Ein Sheet kommt federnd von unten, dahinter wird abgedunkelt.</p></div></div>`; document.body.append(s); s.querySelector('button').onclick = () => s.remove(); });
+/* Langes Drücken → Kontextmenü; Finger liegen lassen und auf den Eintrag ziehen */
+let lp = 0, menu = null;
+$('#photo').addEventListener('pointerdown', e => { const x0 = e.clientX, y0 = e.clientY; e.currentTarget.setPointerCapture(e.pointerId);
+  lp = setTimeout(() => openMenu(x0, y0), 480);
+  const mv = ev => { if (!menu && Math.hypot(ev.clientX - x0, ev.clientY - y0) > 9) clearTimeout(lp); if (menu) { const it = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.k-item'); $$('.k-item').forEach(i => i.classList.toggle('hover', i === it)); } };
+  const up = ev => { clearTimeout(lp); e.target.removeEventListener('pointermove', mv); e.target.removeEventListener('pointerup', up); if (menu) { const it = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.k-item'); if (it) { closeMenu(); toast(it.textContent.trim()); } } };
+  e.target.addEventListener('pointermove', mv); e.target.addEventListener('pointerup', up); });
+function openMenu(x, y) {
+  menu = document.createElement('div'); menu.className = 'k-ctx';
+  menu.innerHTML = `<div class="k-menu" style="left:${Math.max(12, Math.min(innerWidth - 262, x - 125))}px;top:${Math.min(innerHeight - 280, y + 16)}px;transform-origin:${x - Math.max(12, Math.min(innerWidth - 262, x - 125))}px 0">
+    <button class="k-item">Kopieren <span>⧉</span></button><button class="k-item">Duplizieren <span>⊕</span></button><div class="k-sep"></div>
+    <button class="k-item">Nach vorn <span>↑</span></button><button class="k-item">Sperren <span>🔒</span></button><div class="k-sep"></div>
+    <button class="k-item danger">Löschen <span>🗑</span></button></div>`;
+  menu.addEventListener('click', ev => { const it = ev.target.closest('.k-item'); if (it || ev.target === menu) { closeMenu(); if (it) toast(it.textContent.trim()); } });
+  document.body.append(menu);
+}
+function closeMenu() { menu?.remove(); menu = null; }
+</script>
+</body>
+</html>

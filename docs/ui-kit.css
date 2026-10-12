@@ -1,0 +1,165 @@
+/* =====================================================================
+   Streifzug UI-Kit – zum Übernehmen in andere Apps
+   iOS-Look mit „Liquid Glass“: dunkel, schwebende Glas-Kapseln, Federbewegung.
+   Nur CSS, keine Abhängigkeiten. Siehe docs/UI-LEITFADEN.md und docs/ui-kit-demo.html.
+   ===================================================================== */
+
+/* ---------- 1. Tokens ---------- */
+:root {
+  color-scheme: dark;
+  /* Flächen (iOS-Systemfarben, dunkel) */
+  --bg: #000;              /* App-Hintergrund */
+  --stage: #0c0c0e;        /* Arbeitsfläche hinter Inhalten */
+  --surface: #1c1c1e;      /* Karten, Sheets */
+  --surface-2: #2c2c2e;    /* Gruppen in Karten */
+  --surface-3: #3a3a3c;
+  --fill: rgba(118,118,128,.24);   /* Knopf- und Chip-Füllung (systemFill) */
+  --fill-2: rgba(118,118,128,.36); /* Regler-Spur */
+  --tint: rgba(255,255,255,.10);   /* gläserne Füllung auf Karten */
+  --sep: rgba(84,84,88,.45);       /* Trennlinien, 0.5px */
+  /* Text */
+  --fg: #fff; --muted: rgba(235,235,245,.6); --muted-2: rgba(235,235,245,.3);
+  /* Akzent: genau EINE Farbe, sparsam (aktiver Tab, Hauptaktion, geänderte Werte) */
+  --accent: #ffd60a; --accent-ink: #1d1800; --accent-soft: rgba(255,214,10,.16);
+  --danger: #ff453a; --green: #30d158; --orange: #ff9f0a;
+  /* Schrift: Systemschrift (SF Pro auf Apple-Geräten) */
+  --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
+  --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+  --rounded: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif; /* Markenname */
+  /* Radien: konzentrisch – innen = außen minus Abstand */
+  --r-card: 30px; --r-group: 22px; --r-control: 14px; --r-pill: 999px;
+  /* Bewegung: Feder mit leichtem Überschwingen */
+  --spring: linear(0,.009,.035 2.1%,.141 4.4%,.723 12.9%,.938 16.7%,1.017 19.8%,1.043 22.4%,1.044 25.8%,1.013 33.3%,.998 40.2%,1);
+  --ease: cubic-bezier(.25,.1,.25,1);
+  /* Glas-Rezept */
+  --glass: rgba(58,58,62,.42); --glass-strong: rgba(44,44,48,.72);
+  --glass-fx: blur(22px) saturate(190%) brightness(1.08);
+  --glass-hi: linear-gradient(180deg, rgba(255,255,255,.16), rgba(255,255,255,.03) 45%, rgba(255,255,255,0) 60%, rgba(255,255,255,.05));
+  --glass-edge: inset 0 .5px 0 rgba(255,255,255,.38), inset 0 -.5px 0 rgba(255,255,255,.1), inset 0 0 0 .5px rgba(255,255,255,.12);
+  --glass-drop: 0 12px 32px -10px rgba(0,0,0,.6), 0 2px 6px -2px rgba(0,0,0,.3);
+}
+/* ältere Browser ohne linear(): einfache Federkurve */
+@supports not (transition-timing-function: linear(0, 1)) { :root { --spring: cubic-bezier(.2,.9,.25,1.12); } }
+
+html, body { background: var(--stage); color: var(--fg); margin: 0; }
+body { font: 15px/1.35 var(--ui); letter-spacing: -.01em; -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; }
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; touch-action: manipulation; }
+
+/* ---------- 2. Glas (für alles, was über Inhalt schwebt) ---------- */
+.glass {
+  background: var(--glass-hi), var(--glass);
+  -webkit-backdrop-filter: var(--glass-fx); backdrop-filter: var(--glass-fx);
+  box-shadow: var(--glass-edge), var(--glass-drop);
+}
+
+/* ---------- 3. Kopfzeile: keine Leiste, nur schwebende Kapseln ---------- */
+.k-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: calc(env(safe-area-inset-top) + 6px) 12px 8px; }
+.k-brand { font: 700 20px/1 var(--rounded); letter-spacing: -.02em; }
+.k-brand i { font-style: normal; color: var(--accent); }
+.k-capsule { display: flex; padding: 2px; border-radius: var(--r-pill); } /* + .glass */
+.k-icon { width: 40px; height: 40px; border-radius: var(--r-pill); display: grid; place-items: center; }
+.k-icon svg { width: 21px; height: 21px; }
+.k-icon:disabled { opacity: .28; }
+
+/* ---------- 4. Knöpfe ---------- */
+.k-btn { height: 36px; padding: 0 15px; border-radius: var(--r-pill); font-weight: 600; font-size: 14px; display: inline-flex; align-items: center; gap: 6px;
+  background: var(--tint); box-shadow: inset 0 .5px 0 rgba(255,255,255,.12); transition: transform .14s var(--ease), opacity .14s; }
+.k-btn:active { transform: scale(.95); opacity: .75; }
+.k-btn.primary { color: var(--accent-ink); background: linear-gradient(180deg, rgba(255,255,255,.4), rgba(255,255,255,0) 55%), var(--accent); box-shadow: inset 0 .5px 0 rgba(255,255,255,.6); }
+.k-btn.hero { height: 44px; padding: 0 16px; font-size: 16px; box-shadow: inset 0 .5px 0 rgba(255,255,255,.7), inset 0 -1px 0 rgba(0,0,0,.12), 0 10px 26px -10px rgba(255,200,0,.55); }
+.k-btn.danger { color: var(--danger); background: rgba(255,69,58,.14); }
+.k-btn.plain { background: none; box-shadow: none; color: var(--accent); }
+
+/* ---------- 5. Chips & Segmente ---------- */
+.k-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.k-chip { min-height: 36px; padding: 7px 14px; border-radius: var(--r-pill); background: var(--tint); font-size: 14px; font-weight: 500; box-shadow: inset 0 .5px 0 rgba(255,255,255,.12); }
+.k-chip[aria-pressed="true"] { background: #fff; color: #000; box-shadow: 0 4px 14px -6px rgba(255,255,255,.35); animation: k-pop .35s var(--spring); }
+.k-seg { display: flex; padding: 3px; border-radius: var(--r-pill); background: rgba(255,255,255,.08); }
+.k-seg button { flex: 1 0 auto; padding: 8px 12px; border-radius: var(--r-pill); font-size: 13px; font-weight: 500; }
+.k-seg button[aria-selected="true"] { font-weight: 600; background: linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,.08)); box-shadow: inset 0 .5px 0 rgba(255,255,255,.4), 0 4px 12px -4px rgba(0,0,0,.5); }
+@keyframes k-pop { from { transform: scale(.92); } }
+
+/* ---------- 6. Regler: Kapsel-Griff, beim Ziehen gläserne Linse ---------- */
+.k-slider { -webkit-appearance: none; appearance: none; width: 100%; height: 34px; background: transparent; margin: 0; touch-action: pan-y; }
+.k-slider::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--fill-2) var(--a,0%), var(--accent) var(--a,0%), var(--accent) var(--b,0%), var(--fill-2) var(--b,0%)); }
+.k-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 38px; height: 24px; margin-top: -9px; border-radius: 12px; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.25); transition: transform .3s var(--spring), background-color .2s; }
+.k-slider:active::-webkit-slider-thumb { transform: scale(1.35); background: rgba(255,255,255,.28); box-shadow: inset 0 .5px 0 rgba(255,255,255,.9), inset 0 0 0 1px rgba(255,255,255,.55), 0 6px 18px rgba(0,0,0,.35); }
+.k-slider::-moz-range-thumb { width: 38px; height: 24px; border-radius: 12px; background: #fff; border: 0; }
+.k-sl-top { display: flex; justify-content: space-between; align-items: center; font-size: 15px; }
+.k-sl-top output { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.k-sl.changed output { color: var(--accent); }
+
+/* ---------- 7. Schalter: breite Spur, Kapsel-Knopf, grün wenn an ---------- */
+.k-switch { width: 62px; height: 28px; border-radius: var(--r-pill); background: var(--fill-2); position: relative; flex-shrink: 0; transition: background-color .25s var(--ease); }
+.k-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 38px; height: 24px; border-radius: var(--r-pill); background: #fff; box-shadow: 0 3px 8px rgba(0,0,0,.15), 0 3px 1px rgba(0,0,0,.06); transition: transform .32s var(--spring); }
+.k-switch[aria-checked="true"] { background: var(--green); }
+.k-switch[aria-checked="true"]::after { transform: translateX(20px); }
+.k-switch:active::after { transform: scale(1.15); }
+.k-switch[aria-checked="true"]:active::after { transform: translateX(20px) scale(1.15); }
+.k-toggle { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 36px; font-size: 15px; }
+
+/* ---------- 8. Werkzeug-Karte (Sheet) + Gruppen ---------- */
+.k-dock { position: relative; padding: 0 8px; height: var(--dock, 46dvh); display: flex; flex-direction: column; }
+.k-dock.anim { transition: height .5s var(--spring); }
+.k-card { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: var(--r-card);
+  background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,0) 90px), rgba(30,30,33,.94); box-shadow: var(--glass-edge), 0 -8px 30px -12px rgba(0,0,0,.7); }
+.k-grab { height: 18px; display: flex; align-items: center; justify-content: center; touch-action: none; cursor: ns-resize; }
+.k-grab i { width: 38px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.28); }
+.k-head { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 4px 18px 2px; }
+.k-head .title { margin-right: auto; font: 700 22px/1.1 var(--display); letter-spacing: -.03em; }
+.k-panel { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 6px 16px 96px; display: flex; flex-direction: column; gap: 12px; }
+.k-panel.enter { animation: k-in .38s var(--spring); }
+@keyframes k-in { from { opacity: 0; transform: translateY(10px); } }
+.k-group { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: var(--r-group); background: rgba(255,255,255,.055); box-shadow: inset 0 .5px 0 rgba(255,255,255,.06); }
+.k-label { font-size: 12px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--muted); }
+.k-note { font-size: 13px; color: var(--muted); line-height: 1.45; }
+
+/* ---------- 9. Tab-Leiste: schwebende Glas-Kapsel über dem Inhalt ---------- */
+.k-tabs { position: absolute; left: 16px; right: 16px; bottom: calc(10px + max(0px, env(safe-area-inset-bottom) - 14px)); margin: 0 auto; width: max-content; max-width: calc(100% - 32px);
+  display: flex; padding: 4px; border-radius: var(--r-pill); overflow-x: auto; scrollbar-width: none; z-index: 4;
+  background: var(--glass-hi), rgba(50,50,54,.62); -webkit-backdrop-filter: blur(24px) saturate(200%) brightness(1.1); backdrop-filter: blur(24px) saturate(200%) brightness(1.1);
+  box-shadow: var(--glass-edge), 0 16px 36px -10px rgba(0,0,0,.75), 0 2px 8px -2px rgba(0,0,0,.4); }
+.k-tab { flex: 0 0 auto; min-width: 56px; min-height: 54px; padding: 6px 8px 5px; border-radius: var(--r-pill); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  font-size: 10.5px; font-weight: 600; color: rgba(255,255,255,.88); transition: transform .14s var(--ease); }
+.k-tab svg { width: 24px; height: 24px; }
+.k-tab[aria-selected="true"] { color: var(--accent); background: rgba(255,255,255,.14); box-shadow: inset 0 .5px 0 rgba(255,255,255,.22); }
+.k-tab:active { transform: scale(.92); }
+
+/* ---------- 10. Meldung (Toast): kleine Pille oben, mit Symbol ---------- */
+.k-toast { position: fixed; left: 0; right: 0; margin-inline: auto; width: max-content; max-width: min(92%, 420px); top: calc(env(safe-area-inset-top) + 54px); z-index: 40;
+  display: flex; align-items: center; gap: 8px; padding: 9px 16px 9px 12px; border-radius: var(--r-pill); font-size: 14px; font-weight: 600; line-height: 1.3;
+  background: var(--glass-hi), var(--glass-strong); -webkit-backdrop-filter: var(--glass-fx); backdrop-filter: var(--glass-fx); box-shadow: var(--glass-edge), var(--glass-drop);
+  animation: k-toast .45s var(--spring); }
+.k-toast .ico { width: 20px; height: 20px; flex-shrink: 0; }
+.k-toast .ico.ok { color: var(--green); } .k-toast .ico.warn { color: var(--orange); } .k-toast .ico.info { color: var(--accent); }
+.k-toast button { color: var(--accent); font-weight: 600; padding: 4px 2px 4px 6px; }
+@keyframes k-toast { from { opacity: 0; transform: translateY(-16px) scale(.9); } }
+
+/* ---------- 11. Kontextmenü (langes Drücken) ---------- */
+.k-ctx { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.28); -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px); }
+.k-menu { position: absolute; width: 250px; padding: 6px 0; border-radius: 26px; animation: k-menu .42s var(--spring);
+  background: var(--glass-hi), rgba(46,46,50,.72); -webkit-backdrop-filter: blur(30px) saturate(200%); backdrop-filter: blur(30px) saturate(200%); box-shadow: var(--glass-edge), 0 30px 70px -14px rgba(0,0,0,.8); }
+.k-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: calc(100% - 12px); margin: 0 6px; min-height: 46px; padding: 0 14px; border-radius: 14px; font-size: 17px; letter-spacing: -.02em; text-align: left; }
+.k-item svg { width: 20px; height: 20px; }
+.k-item:active, .k-item.hover { background: rgba(255,255,255,.12); }
+.k-item.danger { color: var(--danger); }
+.k-sep { height: .5px; margin: 6px 16px; background: rgba(255,255,255,.14); }
+@keyframes k-menu { from { opacity: 0; transform: scale(.35); } }
+
+/* ---------- 12. Sheet (Vollbild-Blatt von unten) ---------- */
+.k-sheet { position: fixed; left: 6px; right: 6px; bottom: 0; top: calc(env(safe-area-inset-top) + 10px); z-index: 20; display: flex; flex-direction: column;
+  border-radius: 34px 34px 0 0; background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,0) 120px), #1c1c1f;
+  box-shadow: var(--glass-edge), 0 0 0 100vmax rgba(0,0,0,.5); animation: k-sheet .5s var(--spring); padding-bottom: env(safe-area-inset-bottom); }
+.k-sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 10px 6px 20px; }
+.k-sheet-head h2 { margin: 0; font: 700 22px/1.2 var(--display); letter-spacing: -.02em; }
+@keyframes k-sheet { from { transform: translateY(100%); } }
+
+/* ---------- 13. Schwebende Hinweise auf der Arbeitsfläche ---------- */
+.k-hint { position: absolute; left: 50%; bottom: 50px; transform: translateX(-50%); width: max-content; max-width: calc(100% - 40px); padding: 6px 12px; border-radius: var(--r-pill); font-size: 13px;
+  transition: opacity .35s var(--ease), transform .35s var(--spring); } /* + .glass */
+.k-hint.fade { opacity: 0; transform: translateX(-50%) translateY(6px); }
+.k-tip { display: flex; gap: 10px; align-items: flex-start; padding: 12px 12px 12px 14px; border-radius: var(--r-group); font-size: 14px; line-height: 1.4;
+  background: linear-gradient(135deg, rgba(255,214,10,.16), rgba(255,214,10,.05)); box-shadow: inset 0 .5px 0 rgba(255,255,255,.12); }
+.k-tip button { color: var(--accent); font-weight: 600; margin-left: auto; }
+
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
