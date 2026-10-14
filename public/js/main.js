@@ -1,4 +1,4 @@
-/* Streifzug – Oberfläche, Gesten, Werkzeuge, Export */
+/* Seamly – Oberfläche, Gesten, Werkzeuge, Export */
 import { logErr, errLog, haptic, $, clamp, clone, esc, state, ui, sources, cache, ids, newId, dims, selLayer, toast, defParams, upgradeParams, FORMATS, LOOKS, FONTS, ID_CURVE } from './core.js';
 import { mk, makeAux, processImage, prepare, curveFn, pickHealSource, wbFromPoint, shrink } from './process.js';
 import { focusPoint, flags, getCut, loadScaled, orientCanvas, cropAspect, cropRect, boxOf, drawScene, ensureCache, releaseAux, cacheKey, drawSample, FRAMES } from './scene.js';
@@ -991,7 +991,7 @@ function action(a, l) {
     case 'applyAll': state.layers.filter(x => x.type === 'image' && x !== l).forEach(x => { const keep = { heal: x.params.heal, brush: x.params.brush, masks: x.params.masks, clone: x.params.clone || [], erase: x.params.erase || [], skin: { ...l.params.skin, d: x.params.skin && x.params.skin.d } }; x.params = clone(l.params); Object.assign(x.params, keep); }); commit(); toast('Auf alle Fotos übertragen'); return;
     case 'savePreset': { const name = ($('#presetName').value || '').trim() || `Preset ${loadPresets().length + 1}`; const ps = loadPresets(), pp = clone(P); pp.heal = []; pp.brush = []; pp.masks = []; pp.clone = []; pp.erase = []; if (pp.skin) pp.skin.d = null; pp.persp = { v: 0, h: 0 }; ps.push({ name, params: pp }); savePresets(ps); renderPanel(); toast(`„${name}“ gesichert`); return; }
     case 'clearPresets': if (!ui.confirmPresets) { ui.confirmPresets = true; renderPanel(); return; } ui.confirmPresets = false; savePresets([]); renderPanel(); toast('Presets gelöscht'); return;
-    case 'exportPresets': { const blob = new Blob([JSON.stringify({ streifzug: 1, presets: loadPresets() }, null, 1)], { type: 'application/json' }); webSave([{ blob, name: 'streifzug-presets.json' }]); return; }
+    case 'exportPresets': { const blob = new Blob([JSON.stringify({ seamly: 1, presets: loadPresets() }, null, 1)], { type: 'application/json' }); webSave([{ blob, name: 'seamly-presets.json' }]); return; }
     case 'maskDel': P.masks.splice(ui.maskSel, 1); ui.maskSel = Math.max(0, ui.maskSel - 1); commit(); return;
     case 'maskDup': { const m = clone(P.masks[ui.maskSel]); m.x = clamp(m.x + .05); m.y = clamp(m.y + .05); P.masks.push(m); ui.maskSel = P.masks.length - 1; commit(); return; }
     case 'cutUndo': l.cut.strokes.pop(); commit(); return;
@@ -1026,7 +1026,7 @@ function savePresets(p) { try { localStorage.setItem('streifzug.presets', JSON.s
 async function importPresets(f) {
   if (!f) return;
   try { const j = JSON.parse(await f.text()), list = (j.presets || j).filter(p => p && p.name && p.params); if (!list.length) throw 0; savePresets(loadPresets().concat(list.map(p => ({ name: String(p.name).slice(0, 28), params: upgradeParams(p.params) })))); renderPanel(); toast(`${list.length} Preset${list.length === 1 ? '' : 's'} importiert`); }
-  catch { toast('Die Datei enthält keine Streifzug-Presets.'); }
+  catch { toast('Die Datei enthält keine Seamly-Presets.'); }
 }
 function markBands() { const l = selLayer(); panel.querySelectorAll('.band').forEach((b, i) => b.classList.toggle('mod', l.params.hsl[i].some(v => v))); }
 function markGrade() { const l = selLayer(); panel.querySelectorAll('[data-grade]').forEach(b => { const g = l.params.grade[b.dataset.grade]; b.querySelector('.gdot').style.setProperty('--c', `hsl(${g[0]} ${g[1] ? 80 : 0}% 55%)`); }); }
@@ -1165,7 +1165,7 @@ async function openProjects() {
   grid.innerHTML = list.length ? list.map(p => `<div class="proj${p.id === ui.projectId ? ' cur' : ''}"><button class="proj-open" data-open="${p.id}">${p.thumb ? `<img src="${URL.createObjectURL(p.thumb)}" alt="">` : '<span class="proj-empty"></span>'}</button>
     <div class="proj-meta"><b>${esc(p.name)}</b><span>${p.format || ''} · ${p.slides || '?'} Slides · ${new Date(p.updated).toLocaleDateString('de-DE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>
     <div class="row">${`<button class="btn ghost small" data-pdup="${p.id}">Duplizieren</button><button class="btn danger small" data-pdel="${p.id}">Löschen</button>`}</div></div>`).join('')
-    : '<p class="note">Noch keine gespeicherten Projekte. Sobald du ein eigenes Foto hinzufügst, speichert Streifzug automatisch.</p>';
+    : '<p class="note">Noch keine gespeicherten Projekte. Sobald du ein eigenes Foto hinzufügst, speichert Seamly automatisch.</p>';
 }
 $('#projGrid').addEventListener('click', async e => {
   const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
@@ -1181,13 +1181,13 @@ async function buildReport() {
   let est = ''; try { const q = await navigator.storage.estimate(); est = `${Math.round(q.usage / 1e6)} MB von ${Math.round(q.quota / 1e6)} MB`; } catch {}
   let persisted = '?'; try { persisted = await navigator.storage.persisted(); } catch {}
   const ph = state.layers.filter(l => l.type === 'image' && l.srcId).length;
-  return [`Streifzug Version ${VERSION} · ${new Date().toLocaleString('de-DE')}`, navigator.userAgent, `Fenster ${innerWidth}×${innerHeight}, Bildschirm ${screen.width}×${screen.height}, DPR ${devicePixelRatio}, ${navigator.standalone ? 'Home-Bildschirm' : 'Browser'}`,
+  return [`Seamly Version ${VERSION} · ${new Date().toLocaleString('de-DE')}`, navigator.userAgent, `Fenster ${innerWidth}×${innerHeight}, Bildschirm ${screen.width}×${screen.height}, DPR ${devicePixelRatio}, ${navigator.standalone ? 'Home-Bildschirm' : 'Browser'}`,
     `Projekt: ${state.slides} Slides, ${state.layers.length} Ebenen, ${ph} Fotos, Format ${state.format}, Vorlage ${state.tpl ? state.tpl.kind : '–'}`, `Speicher: ${est || '?'} · dauerhaft: ${persisted} · Hintergrund-Rechner: ${poolOK() ? 'an' : 'aus'}`, '',
     'Letzte Meldungen:', ...(errLog.length ? errLog.slice(-25).map(e => `${new Date(e.t).toLocaleTimeString('de-DE')}${e.old ? ' (vorher)' : ''} ${e.kind}: ${e.msg}`) : ['keine'])].join('\n');
 }
 async function reportProblem(how) {
   const txt = await buildReport();
-  if (how === 'share' && navigator.share) { try { await navigator.share({ title: 'Streifzug Fehlerbericht', text: txt }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+  if (how === 'share' && navigator.share) { try { await navigator.share({ title: 'Seamly Fehlerbericht', text: txt }); return; } catch (e) { if (e.name === 'AbortError') return; } }
   try { await navigator.clipboard.writeText(txt); toast('Fehlerbericht kopiert – einfach in den Chat einfügen'); } catch { toast('Kopieren ging nicht – nutze „Teilen“'); }
 }
 function openHelp() {
@@ -1253,11 +1253,11 @@ async function doExport() {
     for (let i = 0; i < state.slides; i++) {
       prog.textContent = `Slide ${i + 1} von ${state.slides} wird gerendert …`; setBar((imgs.length + i) / (imgs.length + state.slides)); await pause(20);
       const c = mk(W, H), x = c.getContext('2d'); x.translate(-i * W, 0); drawScene(x, { procs });
-      await push(c, `streifzug-${String(i + 1).padStart(2, '0')}.${ext}`, `${i + 1} / ${state.slides}`);
+      await push(c, `seamly-${String(i + 1).padStart(2, '0')}.${ext}`, `${i + 1} / ${state.slides}`);
     }
     if (expOpt.pano && state.slides > 1) {
       const T = W * state.slides, s = Math.min(1, Math.sqrt(16e6 / (T * H))), c = mk(T * s, H * s), x = c.getContext('2d'); x.scale(s, s); drawScene(x, { procs });
-      await push(c, `streifzug-panorama.${ext}`, 'Panorama');
+      await push(c, `seamly-panorama.${ext}`, 'Panorama');
     }
   } catch (err) { console.error(err); prog.textContent = 'Der Export ist fehlgeschlagen. Vermutlich war ein Foto zu groß für den Speicher – versuche es mit weniger Fotos auf einmal.'; return; }
   setBar(1); prog.textContent = `${state.slides} ${state.slides === 1 ? 'Slide' : 'Slides'} fertig · ${expOpt.type.toUpperCase()}, ${W}×${H} px`;
@@ -1294,7 +1294,7 @@ document.addEventListener('keydown', e => {
 });
 let keyT;
 /* ---------- Kopieren & Einfügen ---------- */
-const VERSION = 42;
+const VERSION = 43;
 const CLIP_MARK = 'streifzug-ebene:';
 function copyLayer(l) {
   ui.layerClip = clone(l); LS.set('layerClip', ui.layerClip); haptic();
@@ -1338,7 +1338,7 @@ async function pasteAny() {
       for (const txt of texts) if (pasteText(txt)) return;
     } else if (navigator.clipboard && navigator.clipboard.readText) { const txt = await navigator.clipboard.readText(); seen = !!txt; if (pasteText(txt)) return; }
   } catch (e) { console.warn(e); denied = true; }
-  // die zuletzt in Streifzug kopierte Ebene nur nehmen, wenn die Zwischenablage nichts anderes enthält
+  // die zuletzt in Seamly kopierte Ebene nur nehmen, wenn die Zwischenablage nichts anderes enthält
   if (ui.layerClip && !seen) { pasteLayer(); return; }
   toast(denied ? 'Einfügen wurde nicht erlaubt – nochmal tippen und „Einsetzen“ wählen, oder unter „Element“ ins Feld lange drücken'
     : seen ? `Das lässt sich hier nicht einfügen (${[...new Set(found)].join(', ').slice(0, 60)}) – versuch es unter „Element“: ins Feld lange drücken → „Einsetzen“`
@@ -1403,7 +1403,7 @@ resize();
 if (document.fonts) {
   Promise.all(FONTS.map(f => document.fonts.load(`${f[2]} 40px "${f[0]}"`))).catch(() => {}).then(() => { flags.fontsTick++; requestRender(); });
 }
-if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').then(reg => reg.addEventListener('updatefound', () => { const w = reg.installing; w && w.addEventListener('statechange', () => { if (w.state === 'activated' && navigator.serviceWorker.controller) toast('Neue Version von Streifzug ist da', 'Neu laden', () => { saveNow(); setTimeout(() => location.reload(), 300); }); }); })).catch(() => {});
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').then(reg => reg.addEventListener('updatefound', () => { const w = reg.installing; w && w.addEventListener('statechange', () => { if (w.state === 'activated' && navigator.serviceWorker.controller) toast('Neue Version von Seamly ist da', 'Neu laden', () => { saveNow(); setTimeout(() => location.reload(), 300); }); }); })).catch(() => {});
 window.__streifzug = { openTab: k => { ui.tab[mode() === 'image' ? 'image' : mode()] = k; renderUI(); }, state, ui, view, sources, cache, action, applyTemplate, layout, fit, selectLayer, commit, render, runSegment, addFiles, saveNow, openProject,
   runErase, addAiMask, detectSkin, autoCut, goHistory, hist: () => [hist.length, hIdx, histLbl.map(x => x.l)],
   snapshot: (h = 360) => { const { W, H } = dims(), T = W * state.slides, c = mk(T * h / H, h), x = c.getContext('2d'); x.scale(h / H, h / H); drawScene(x, { clean: true }); return c.toDataURL('image/jpeg', .85); } };

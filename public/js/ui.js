@@ -1,4 +1,4 @@
-/* Streifzug – gemeinsame Oberflächen-Bausteine: Symbole und Gruppen der Foto-Werkzeuge */
+/* Seamly – gemeinsame Oberflächen-Bausteine: Symbole und Gruppen der Foto-Werkzeuge */
 export function sv(d) { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`; }
 export const IC = {
   spark: sv('<path d="M12 3c.5 3.5 2.5 5.5 6 6-3.5.5-5.5 2.5-6 6-.5-3.5-2.5-5.5-6-6 3.5-.5 5.5-2.5 6-6z"/><path d="M19 15c.2 1.4 1 2.2 2.4 2.4-1.4.2-2.2 1-2.4 2.4-.2-1.4-1-2.2-2.4-2.4 1.4-.2 2.2-1 2.4-2.4z"/>'),

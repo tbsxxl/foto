@@ -1,4 +1,4 @@
-/* Automatische Tests für Streifzug: startet einen kleinen Server für ./public, klickt alle Bedienelemente durch
+/* Automatische Tests für Seamly: startet einen kleinen Server für ./public, klickt alle Bedienelemente durch
    und prüft Kernabläufe. Aufruf: cd tests && npm install && npx playwright install chromium && npm test
    Optional: CHROME_PATH=/pfad/zu/chrome für einen vorhandenen Browser. */
 import { chromium } from 'playwright';

@@ -1,4 +1,4 @@
-/* Streifzug – Werkzeugfeld: Regler-Helfer und alle Bedienfelder (Leinwand, Vorlagen, Ebenen, Elemente, Foto, Text, Formen) */
+/* Seamly – Werkzeugfeld: Regler-Helfer und alle Bedienfelder (Leinwand, Vorlagen, Ebenen, Elemente, Foto, Text, Formen) */
 import { clamp, clone, de, esc, state, ui, sources, cache, ids, dims, selLayer, toast, FORMATS, HSL_BANDS, LOOKS, LOOK_CATS, FONTS, TEXT_COLORS, BG_COLORS, FRAME_COLORS, RATIOS, BLENDS, STAMP_COLORS } from './core.js';
 import { mk, LEAKS, shrink } from './process.js';
 import { flags, drawScene, cacheKey, SHAPES, BG_PATTERNS, FRAMES, CHART_PALETTES } from './scene.js';

@@ -1,6 +1,6 @@
-# UI-Leitfaden Streifzug – zum Übernehmen in andere Apps
+# UI-Leitfaden Seamly – zum Übernehmen in andere Apps
 
-So ist die Oberfläche von Streifzug aufgebaut, mit Maßen, Farben und Gesten, damit du sie in einer anderen App nachbauen kannst. Dazu gehören:
+So ist die Oberfläche von Seamly aufgebaut, mit Maßen, Farben und Gesten, damit du sie in einer anderen App nachbauen kannst. Dazu gehören:
 
 - **`docs/ui-kit.css`**: alle Bausteine als CSS zum Kopieren, Klassen mit `k-` davor
 - **`docs/ui-kit-demo.html`**: Demo-Seite mit allen Bausteinen und den wichtigsten Gesten, im Browser öffnen
