@@ -148,6 +148,7 @@ const MI = {
   all: sv('<rect x="2" y="6" width="6" height="12" rx="1.5"/><rect x="9" y="6" width="6" height="12" rx="1.5"/><rect x="16" y="6" width="6" height="12" rx="1.5"/>'),
   lock: sv('<rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/>'), unlock: sv('<rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V7.5a4 4 0 0 1 7.7-1.5"/>'),
   del: sv('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>'), check: sv('<path d="m5 12 5 5 9-10"/>'), clock: sv('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'), text: sv('<path d="M5 6V4h14v2M12 4v16M9 20h6"/>'),
+  cam: sv('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>'),
   photo: sv('<rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 8"/>'), tpl: sv('<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="10" width="8" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/>')
 };
 function layerMenu(l) {
@@ -721,13 +722,18 @@ function updateTop() {
 function renderUI() { renderTabs(); renderHead(); renderPanel(); updateTop(); requestRender(); }
 /* Foto-Werkzeuge in Gruppen: obere Reiter, darunter Unterreiter */
 const TABSETS = {
-  none: [['canvas', 'Leinwand', 'canvas'], ['vorlagen', 'Vorlagen', 'tpl'], ['ebenen', 'Ebenen', 'layers'], ['addPhoto', 'Foto', 'photo'], ['addText', 'Text', 'text'], ['element', 'Element', 'el']],
+  none: [['canvas', 'Leinwand', 'canvas'], ['vorlagen', 'Vorlagen', 'tpl'], ['ebenen', 'Ebenen', 'layers'], ['element', 'Element', 'el']],
   image: IMG_GROUPS.map(([k, lb, ic]) => [k, lb, ic]),
   text: [['text', 'Text', 'text'], ['stil', 'Stil', 'style'], ['ebene', 'Ebene', 'layers']],
   shape: [['form', 'Form', 'shape'], ['ebene', 'Ebene', 'layers']],
   slot: [['slot', 'Leeres Feld', 'slot']]
 };
+/* „+“-Knopf neben der Tab-Leiste: Hinzufügen ist eine Aktion, kein Tab */
+$('#addBtn').addEventListener('click', () => { const r = $('#addBtn').getBoundingClientRect(); haptic();
+  openMenu([['Fotos', 'photo', () => $('#fileIn').click()], ['Kamera', 'cam', () => $('#camIn').click()], ['Text', 'text', () => { selectLayer(null); addTextHere(); }], '-',
+    ['Elemente & Sticker', 'tpl', () => { ui.tab.none = 'element'; selectLayer(null); renderUI(); }], ['Einfügen', 'paste', pasteAny]], r.left + r.width / 2, r.top - 4); });
 function renderTabs() {
+  document.documentElement.classList.toggle('has-fab', mode() === 'none');
   const m = mode(), cur = m === 'image' ? groupOf(ui.tab.image)[0] : ui.tab[m];
   tabs.innerHTML = TABSETS[m].map(([k, lab, ic]) => { const inner = `${IC[ic] || ''}<span>${lab}</span>`, add = /^add|^element$/.test(k) ? ' add' : '';
     return k === 'addPhoto' ? `<label class="tab add" for="fileIn" role="button" tabindex="0">${inner}</label>` : k === 'addCam' ? `<label class="tab add" for="camIn" role="button" tabindex="0">${inner}</label>`
@@ -1294,7 +1300,7 @@ document.addEventListener('keydown', e => {
 });
 let keyT;
 /* ---------- Kopieren & Einfügen ---------- */
-const VERSION = 44;
+const VERSION = 45;
 const CLIP_MARK = 'streifzug-ebene:';
 function copyLayer(l) {
   ui.layerClip = clone(l); LS.set('layerClip', ui.layerClip); haptic();
@@ -1382,6 +1388,20 @@ addEventListener('resize', setAppHeight); addEventListener('orientationchange', 
 window.visualViewport && visualViewport.addEventListener('resize', setAppHeight);
 
 if (!ui.layerClip) ui.layerClip = LS.get('layerClip', null); // kopierte Ebene übersteht Neustart der App
+
+/* Sheets wie in iOS: Griff oben, nach unten wischen schließt */
+document.querySelectorAll('.sheet').forEach(sh => {
+  const g = document.createElement('div'); g.className = 'sheet-grab'; g.setAttribute('aria-hidden', 'true'); g.innerHTML = '<i></i>'; sh.prepend(g);
+  const closeBtn = () => [...sh.querySelectorAll('.sheet-head button')].find(b => /^close/.test(b.id));
+  const start = e => { if (e.target.closest('button,input,a,label')) return; const y0 = e.clientY, t0 = performance.now(); let dy = 0; sh.style.transition = 'none';
+    const mv = ev => { dy = Math.max(0, ev.clientY - y0); sh.style.transform = `translateY(${dy}px)`; };
+    const up = ev => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
+      const v = dy / Math.max(1, performance.now() - t0); sh.style.transition = 'transform .35s var(--spring)';
+      if (dy > 110 || (v > .6 && dy > 30)) { haptic(); sh.style.transform = 'translateY(100%)'; setTimeout(() => { closeBtn()?.click(); sh.style.transform = ''; sh.style.transition = ''; }, 220); }
+      else { sh.style.transform = ''; setTimeout(() => { sh.style.transition = ''; }, 360); } };
+    addEventListener('pointermove', mv); addEventListener('pointerup', up); addEventListener('pointercancel', up); };
+  g.addEventListener('pointerdown', start); sh.querySelector('.sheet-head').addEventListener('pointerdown', start);
+});
 
 /* ---------- Willkommen (einmalig, wie „Neu in …“ bei Apple) ---------- */
 function showWelcome() {

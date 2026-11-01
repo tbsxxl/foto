@@ -50,7 +50,7 @@ async function crawl() {
   const id = await Z(() => window.__streifzug.state.layers.find(l => l.type === 'image' && l.srcId).id);
   for (const s of ['rahmen', 'looks', 'anpassen', 'licht', 'kurve', 'farbe', 'grading', 'effekte', 'kreativ', 'details', 'stempel', 'entfernen', 'freistellen', 'hintergrund', 'gesicht', 'selektiv', 'pinsel', 'reparieren', 'klonen', 'fokus', 'zuschnitt', 'ebene'])
     await clickAll('foto/' + s, () => Z(([s, id]) => { const Z = window.__streifzug; Z.ui.tab.image = s; Z.selectLayer(id); }, [s, id]));
-  await Z(() => window.__streifzug.selectLayer(null)); await p.click('[data-tab="addText"]'); await p.waitForTimeout(200);
+  await Z(() => window.__streifzug.selectLayer(null)); await p.click('#addBtn'); await p.click('.ctx-item:has-text("Text")'); await p.waitForTimeout(200);
   const tid = await Z(() => window.__streifzug.ui.sel);
   for (const s of ['text', 'stil', 'ebene']) await clickAll('text/' + s, () => Z(([s, id]) => { const Z = window.__streifzug; Z.ui.tab.text = s; Z.selectLayer(id); }, [s, tid]));
   for (const k of ['rect', 'tape', 'clip', 'dHeart', 'qr', 'chart']) {
